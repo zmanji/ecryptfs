@@ -125,6 +125,7 @@ ecryptfs_get_key_payload_data(struct key *key)
 
 #define ECRYPTFS_MAX_KEYSET_SIZE 1024
 #define ECRYPTFS_MAX_CIPHER_NAME_SIZE 32
+#define ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE 32
 #define ECRYPTFS_MAX_NUM_ENC_KEYS 64
 #define ECRYPTFS_MAX_IV_BYTES 16	/* 128 bits */
 #define ECRYPTFS_SALT_BYTES 2
@@ -134,6 +135,7 @@ ecryptfs_get_key_payload_data(struct key *key)
 #define ECRYPTFS_SIZE_AND_MARKER_BYTES (ECRYPTFS_FILE_SIZE_BYTES \
 					+ MAGIC_ECRYPTFS_MARKER_SIZE_BYTES)
 #define ECRYPTFS_DEFAULT_CIPHER "aes"
+#define ECRYPTFS_DEFAULT_CIPHER_MODE "cbc"
 #define ECRYPTFS_DEFAULT_KEY_BYTES 16
 #define ECRYPTFS_DEFAULT_HASH "md5"
 #define ECRYPTFS_TAG_70_DIGEST ECRYPTFS_DEFAULT_HASH
@@ -339,6 +341,8 @@ struct ecryptfs_mount_crypt_stat {
 	size_t global_default_fn_cipher_key_bytes;
 	unsigned char global_default_cipher_name[ECRYPTFS_MAX_CIPHER_NAME_SIZE
 						 + 1];
+	unsigned char global_default_cipher_mode_name[
+		ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE + 1];
 	unsigned char global_default_fn_cipher_name[
 		ECRYPTFS_MAX_CIPHER_NAME_SIZE + 1];
 	char global_default_fnek_sig[ECRYPTFS_SIG_SIZE_HEX + 1];

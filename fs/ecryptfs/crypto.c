@@ -633,8 +633,10 @@ int ecryptfs_init_crypt_ctx(struct ecryptfs_crypt_stat *crypt_stat)
 		rc = PTR_ERR(crypt_stat->tfm);
 		crypt_stat->tfm = NULL;
 		ecryptfs_printk(KERN_ERR, "cryptfs: init_crypt_ctx(): "
-				"Error initializing cipher [%s]\n",
-				crypt_stat->cipher);
+			"Error initializing cipher [%s] and mode [%s]\n",
+			crypt_stat->cipher,
+			crypt_stat->mount_crypt_stat->
+				global_default_cipher_mode_name);
 		goto out_unlock;
 	}
 	crypto_ablkcipher_set_flags(crypt_stat->tfm, CRYPTO_TFM_REQ_WEAK_KEY);
