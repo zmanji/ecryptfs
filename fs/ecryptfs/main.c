@@ -170,6 +170,7 @@ void ecryptfs_put_lower_file(struct inode *inode)
 
 enum { ecryptfs_opt_sig, ecryptfs_opt_ecryptfs_sig,
        ecryptfs_opt_cipher, ecryptfs_opt_ecryptfs_cipher,
+       ecryptfs_opt_cipher_mode, ecryptfs_opt_ecryptfs_cipher_mode,
        ecryptfs_opt_ecryptfs_key_bytes,
        ecryptfs_opt_passthrough, ecryptfs_opt_xattr_metadata,
        ecryptfs_opt_encrypted_view, ecryptfs_opt_fnek_sig,
@@ -182,7 +183,9 @@ static const match_table_t tokens = {
 	{ecryptfs_opt_sig, "sig=%s"},
 	{ecryptfs_opt_ecryptfs_sig, "ecryptfs_sig=%s"},
 	{ecryptfs_opt_cipher, "cipher=%s"},
+	{ecryptfs_opt_cipher_mode, "cipher_mode=%s"},
 	{ecryptfs_opt_ecryptfs_cipher, "ecryptfs_cipher=%s"},
+	{ecryptfs_opt_ecryptfs_cipher_mode, "ecryptfs_cipher_mode=%s"},
 	{ecryptfs_opt_ecryptfs_key_bytes, "ecryptfs_key_bytes=%u"},
 	{ecryptfs_opt_passthrough, "ecryptfs_passthrough"},
 	{ecryptfs_opt_xattr_metadata, "ecryptfs_xattr_metadata"},
@@ -257,10 +260,13 @@ static void ecryptfs_init_mount_crypt_stat(
 static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 				  uid_t *check_ruid)
 {
+	const char *mode_white_list[] = {"cbc"};
 	char *p;
+	int i = 0;
 	int rc = 0;
 	int sig_set = 0;
 	int cipher_name_set = 0;
+	int cipher_mode_name_set = 0;
 	int fn_cipher_name_set = 0;
 	int cipher_key_bytes;
 	int cipher_key_bytes_set = 0;
@@ -273,6 +279,8 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 	char *sig_src;
 	char *cipher_name_dst;
 	char *cipher_name_src;
+	char *cipher_mode_name_dst;
+	char *cipher_mode_name_src;
 	char *fn_cipher_name_dst;
 	char *fn_cipher_name_src;
 	char *fnek_dst;
@@ -315,6 +323,18 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 				ECRYPTFS_MAX_CIPHER_NAME_SIZE);
 			cipher_name_dst[ECRYPTFS_MAX_CIPHER_NAME_SIZE] = '\0';
 			cipher_name_set = 1;
+			break;
+		case ecryptfs_opt_cipher_mode:
+		case ecryptfs_opt_ecryptfs_cipher_mode:
+			cipher_mode_name_src = args[0].from;
+			cipher_mode_name_dst =
+				mount_crypt_stat->
+				global_default_cipher_mode_name;
+			strncpy(cipher_mode_name_dst, cipher_mode_name_src,
+				ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE);
+			cipher_mode_name_dst[
+				ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE] = '\0';
+			cipher_mode_name_set = 1;
 			break;
 		case ecryptfs_opt_ecryptfs_key_bytes:
 			cipher_key_bytes_src = args[0].from;
@@ -411,6 +431,14 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 		strcpy(mount_crypt_stat->global_default_cipher_name,
 		       ECRYPTFS_DEFAULT_CIPHER);
 	}
+	if (!cipher_mode_name_set) {
+		int cipher_mode_name_len = strlen(ECRYPTFS_DEFAULT_CIPHER_MODE);
+
+		BUILD_BUG_ON(cipher_mode_name_len >=
+			ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE);
+		strcpy(mount_crypt_stat->global_default_cipher_mode_name,
+		       ECRYPTFS_DEFAULT_CIPHER_MODE);
+	}
 	if ((mount_crypt_stat->flags & ECRYPTFS_GLOBAL_ENCRYPT_FILENAMES)
 	    && !fn_cipher_name_set)
 		strcpy(mount_crypt_stat->global_default_fn_cipher_name,
@@ -430,6 +458,22 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 				"eCryptfs doesn't support cipher: %s",
 				mount_crypt_stat->global_default_cipher_name);
 		rc = -EINVAL;
+		goto out;
+	}
+
+	rc = -EINVAL;
+	for (i = 0; i < ARRAY_SIZE(mode_white_list); i++) {
+		if (strcmp(mount_crypt_stat->global_default_cipher_mode_name,
+				mode_white_list[i]) == 0) {
+			rc = 0;
+			break;
+		}
+	}
+	if (rc) {
+		ecryptfs_printk(KERN_ERR,
+				"eCryptfs doesn't support cipher mode: %s",
+				mount_crypt_stat->
+					global_default_cipher_mode_name);
 		goto out;
 	}
 
