@@ -624,7 +624,8 @@ int ecryptfs_init_crypt_ctx(struct ecryptfs_crypt_stat *crypt_stat)
 	}
 	mutex_lock(&crypt_stat->cs_tfm_mutex);
 	rc = ecryptfs_crypto_api_algify_cipher_name(&full_alg_name,
-						    crypt_stat->cipher, crypt_stat->cipher_mode);
+						crypt_stat->cipher,
+						crypt_stat->cipher_mode);
 	if (rc)
 		goto out_unlock;
 	crypt_stat->tfm = crypto_alloc_ablkcipher(full_alg_name, 0, 0);
@@ -635,8 +636,7 @@ int ecryptfs_init_crypt_ctx(struct ecryptfs_crypt_stat *crypt_stat)
 		ecryptfs_printk(KERN_ERR, "cryptfs: init_crypt_ctx(): "
 			"Error initializing cipher [%s] and mode [%s]\n",
 			crypt_stat->cipher,
-			crypt_stat->mount_crypt_stat->
-				global_default_cipher_mode_name);
+			crypt_stat->cipher_mode);
 		goto out_unlock;
 	}
 	crypto_ablkcipher_set_flags(crypt_stat->tfm, CRYPTO_TFM_REQ_WEAK_KEY);
