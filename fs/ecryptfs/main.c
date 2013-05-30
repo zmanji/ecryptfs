@@ -261,7 +261,9 @@ static void ecryptfs_init_mount_crypt_stat(
 static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 				  uid_t *check_ruid)
 {
+        const char *mode_white_list[] = {"cbc", "ecb", "gcm"};
 	char *p;
+	int i = 0;
 	int rc = 0;
 	int sig_set = 0;
 	int cipher_name_set = 0;
@@ -455,6 +457,25 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 				"eCryptfs doesn't support cipher: %s",
 				mount_crypt_stat->global_default_cipher_name);
 		rc = -EINVAL;
+		goto out;
+	}
+
+	//Checking if cipher mode is in white list
+	rc = -EINVAL;
+	for (i = 0; i < ARRAY_SIZE(mode_white_list); i++) {
+		if (strcmp(mount_crypt_stat->global_default_cipher_mode_name,
+				mode_white_list[i]) == 0) {
+			rc = 0;
+			break;
+		}
+	}
+
+	//If return is non-zero, this mode isn't in the whitelist.
+	if (rc) {
+		ecryptfs_printk(KERN_ERR,
+				"eCryptfs doesn't support cipher mode: %s",
+				mount_crypt_stat->
+					global_default_cipher_mode_name);
 		goto out;
 	}
 
