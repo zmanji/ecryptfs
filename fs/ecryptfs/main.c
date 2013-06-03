@@ -261,7 +261,7 @@ static void ecryptfs_init_mount_crypt_stat(
 static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 				  uid_t *check_ruid)
 {
-        const char *mode_white_list[] = {"cbc", "ecb", "gcm"};
+	const char *mode_white_list[] = {"cbc", "ecb", "gcm"};
 	char *p;
 	int i = 0;
 	int rc = 0;
@@ -333,7 +333,8 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 				global_default_cipher_mode_name;
 			strncpy(cipher_mode_name_dst, cipher_mode_name_src,
 				ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE);
-			cipher_mode_name_dst[ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE] = '\0';
+			cipher_mode_name_dst[
+				ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE] = '\0';
 			cipher_mode_name_set = 1;
 			break;
 		case ecryptfs_opt_ecryptfs_key_bytes:
@@ -434,7 +435,8 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 	if (!cipher_mode_name_set) {
 		int cipher_mode_name_len = strlen(ECRYPTFS_DEFAULT_CIPHER_MODE);
 
-		BUG_ON(cipher_mode_name_len >= ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE);
+		BUG_ON(cipher_mode_name_len >=
+			ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE);
 		strcpy(mount_crypt_stat->global_default_cipher_mode_name,
 		       ECRYPTFS_DEFAULT_CIPHER_MODE);
 	}
@@ -460,7 +462,6 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 		goto out;
 	}
 
-	//Checking if cipher mode is in white list
 	rc = -EINVAL;
 	for (i = 0; i < ARRAY_SIZE(mode_white_list); i++) {
 		if (strcmp(mount_crypt_stat->global_default_cipher_mode_name,
@@ -469,8 +470,6 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 			break;
 		}
 	}
-
-	//If return is non-zero, this mode isn't in the whitelist.
 	if (rc) {
 		ecryptfs_printk(KERN_ERR,
 				"eCryptfs doesn't support cipher mode: %s",

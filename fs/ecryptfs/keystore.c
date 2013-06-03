@@ -1468,7 +1468,7 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 			(*new_auth_tok)->session_key.encrypted_key_size;
 	}
 	strncpy(crypt_stat->cipher_mode,
-		crypt_stat->mount_crypt_stat->global_default_cipher_mode_name, 
+		crypt_stat->mount_crypt_stat->global_default_cipher_mode_name,
 		ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE);
 	rc = ecryptfs_init_crypt_ctx(crypt_stat);
 	if (rc)
