@@ -1485,7 +1485,8 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 			(*new_auth_tok)->session_key.encrypted_key_size;
 	}
 
-	if (file_version == 0x05) {
+	/* Read the cipher mode if it is present */
+	if (file_version != 0x04) {
 		rc = ecryptfs_cipher_mode_code_to_string(crypt_stat->cipher_mode,
 				data[(*packet_size)++]);
 		if(rc)
@@ -2401,7 +2402,7 @@ encrypted_session_key_set:
 	cipher_mode_code =
 		ecryptfs_code_for_cipher_mode_string(crypt_stat->cipher_mode);
 
-	if (cipher_code == 0) {
+	if (cipher_mode_code == 0) {
 		ecryptfs_printk(KERN_WARNING, "Unable to generate code for "
 				"cipher mode [%s]\n", crypt_stat->cipher_mode);
 		rc = -EINVAL;
