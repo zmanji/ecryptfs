@@ -228,7 +228,7 @@ struct ecryptfs_crypt_stat {
 #define ECRYPTFS_UNLINK_SIGS          0x00002000
 #define ECRYPTFS_I_SIZE_INITIALIZED   0x00004000
 	u32 flags;
-	unsigned int file_version;
+	u8 file_version;
 	size_t iv_bytes;
 	size_t metadata_size;
 	size_t extent_size; /* Data extent size; default is 4096 */
@@ -615,6 +615,8 @@ int ecryptfs_read_and_validate_xattr_region(struct dentry *dentry,
 					    struct inode *inode);
 u8 ecryptfs_code_for_cipher_string(char *cipher_name, size_t key_bytes);
 int ecryptfs_cipher_code_to_string(char *str, u8 cipher_code);
+u8 ecryptfs_code_for_cipher_mode_string(char *mode_name);
+int ecryptfs_cipher_mode_code_to_string(char *str, u8 mode_code);
 void ecryptfs_set_default_sizes(struct ecryptfs_crypt_stat *crypt_stat);
 int ecryptfs_generate_key_packet_set(char *dest_base,
 				     struct ecryptfs_crypt_stat *crypt_stat,

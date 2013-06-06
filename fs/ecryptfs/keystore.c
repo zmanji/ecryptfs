@@ -1379,6 +1379,7 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 	size_t body_size;
 	struct ecryptfs_auth_tok_list_item *auth_tok_list_item;
 	size_t length_size;
+	u8 file_version;
 	int rc = 0;
 
 	(*packet_size) = 0;
@@ -1387,10 +1388,25 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 	 *This format is inspired by OpenPGP; see RFC 2440
 	 * packet tag 3
 	 *
+	 * This header deviates from the RFC in two ways:
+	 * 1. There is an additional field describing which cipher mode was
+	 * used.
+	 *
+	 * 2. The version field is used to differentiate between different
+	 * versions of the header instead of the different version of tag 3 in
+	 * the RFC.
+	 *
+	 * Version 0x03 is a header that does not have the additional
+	 * cipher mode field. The cipher mode is then assumed to be CBC.
+	 *
+	 * Veersion 0x05 is a header that does have the additional cipher mode
+	 * field. The cipher mode is taken from this header.
+	 *
 	 * Tag 3 identifier (1 byte)
 	 * Max Tag 3 packet size (max 3 bytes)
 	 * Version (1 byte)
 	 * Cipher code (1 byte)
+	 * Cipher mode code (1 byte)
 	 * S2K specifier (1 byte)
 	 * Hash identifier (1 byte)
 	 * Salt (ECRYPTFS_SALT_SIZE)
@@ -1447,7 +1463,8 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 		rc = -EINVAL;
 		goto out_free;
 	}
-	if (unlikely(data[(*packet_size)++] != 0x04)) {
+	file_version = data[(*packet_size)++];
+	if (unlikely(file_version != 0x04 && file_version != 0x05)) {
 		printk(KERN_WARNING "Unknown version number [%d]\n",
 		       data[(*packet_size) - 1]);
 		rc = -EINVAL;
@@ -1467,6 +1484,16 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 		crypt_stat->key_size =
 			(*new_auth_tok)->session_key.encrypted_key_size;
 	}
+
+	if (file_version == 0x05) {
+		rc = ecryptfs_cipher_mode_code_to_string(crypt_stat->cipher_mode,
+				data[(*packet_size)++]);
+		if(rc)
+			goto out_free;
+	} else {
+		strcpy(crypt_stat->cipher_mode, "cbc");
+	}
+
 	rc = ecryptfs_init_crypt_ctx(crypt_stat);
 	if (rc)
 		goto out_free;
@@ -2188,6 +2215,7 @@ write_tag_3_packet(char *dest, size_t *remaining_bytes,
 	struct scatterlist src_sg[2];
 	struct mutex *tfm_mutex = NULL;
 	u8 cipher_code;
+	u8 cipher_mode_code;
 	size_t packet_size_length;
 	size_t max_packet_size;
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat =
@@ -2311,12 +2339,28 @@ write_tag_3_packet(char *dest, size_t *remaining_bytes,
 				  key_rec->enc_key_size);
 	}
 encrypted_session_key_set:
-	/* This format is inspired by OpenPGP; see RFC 2440
-	 * packet tag 3 */
+	/* This format is inspired by OpenPGP; see RFC 2440 packet tag 3.
+	 *
+	 * This header deviates from the RFC in two ways:
+	 * 1. There is an additional field describing which cipher mode was
+	 * used.
+	 *
+	 * 2. The version field is used to differentiate between different
+	 * versions of the header instead of the different version of tag 3 in
+	 * the RFC.
+	 *
+	 * Version 0x04 is a header that does not have the additional
+	 * cipher mode field. The cipher mode is then assumed to be CBC.
+	 *
+	 * Veersion 0x05 is a header that does have the additional cipher mode
+	 * field. The cipher mode is taken from this header.
+	 * */
+
 	max_packet_size = (1                         /* Tag 3 identifier */
 			   + 3                       /* Max Tag 3 packet size */
 			   + 1                       /* Version */
 			   + 1                       /* Cipher code */
+			   + 1                       /* Cipher mode code */
 			   + 1                       /* S2K specifier */
 			   + 1                       /* Hash identifier */
 			   + ECRYPTFS_SALT_SIZE      /* Salt */
@@ -2341,7 +2385,8 @@ encrypted_session_key_set:
 		goto out;
 	}
 	(*packet_size) += packet_size_length;
-	dest[(*packet_size)++] = 0x04; /* version 4 */
+	/* Version */
+	dest[(*packet_size)++] = crypt_stat->file_version;
 	/* TODO: Break from RFC2440 so that arbitrary ciphers can be
 	 * specified with strings */
 	cipher_code = ecryptfs_code_for_cipher_string(crypt_stat->cipher,
@@ -2352,7 +2397,19 @@ encrypted_session_key_set:
 		rc = -EINVAL;
 		goto out;
 	}
+
+	cipher_mode_code =
+		ecryptfs_code_for_cipher_mode_string(crypt_stat->cipher_mode);
+
+	if (cipher_code == 0) {
+		ecryptfs_printk(KERN_WARNING, "Unable to generate code for "
+				"cipher mode [%s]\n", crypt_stat->cipher_mode);
+		rc = -EINVAL;
+		goto out;
+	}
+
 	dest[(*packet_size)++] = cipher_code;
+	dest[(*packet_size)++] = cipher_mode_code;
 	dest[(*packet_size)++] = 0x03;	/* S2K */
 	dest[(*packet_size)++] = 0x01;	/* MD5 (TODO: parameterize) */
 	memcpy(&dest[(*packet_size)], auth_tok->token.password.salt,

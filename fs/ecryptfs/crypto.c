@@ -964,9 +964,72 @@ void ecryptfs_write_crypt_stat_flags(char *page_virt,
 		if (crypt_stat->flags & ecryptfs_flag_map[i].local_flag)
 			flags |= ecryptfs_flag_map[i].file_flag;
 	/* Version is in top 8 bits of the 32-bit flag vector */
-	flags |= ((((u8)crypt_stat->file_version) << 24) & 0xFF000000);
+	flags |= (((crypt_stat->file_version) << 24) & 0xFF000000);
 	put_unaligned_be32(flags, page_virt);
 	(*written) = 4;
+}
+
+struct ecryptfs_cipher_mode_code_str_map_elem {
+	char mode_str[ECRYPTFS_MAX_CIPHER_MODE_NAME_SIZE];
+	u8 mode_code;
+};
+
+static struct ecryptfs_cipher_mode_code_str_map_elem
+ecryptfs_cipher_mode_code_str_map[] = {
+	{"cbc", ECRYPTFS_CIPHER_MODE_CBC},
+	{"gcm", ECRYPTFS_CIPHER_MODE_GCM},
+	{"ecb", ECRYPTFS_CIPHER_MODE_ECB}
+};
+
+/**
+ * ecryptfs_code_for_cipher_mode_string
+ * @mode_name: The string alias for the cipher mode
+ *
+ * Retruns zero on no match, or the cipher code on match
+ */
+u8 ecryptfs_code_for_cipher_mode_string(char *mode_name)
+{
+	int i;
+	u8 code = 0;
+	struct ecryptfs_cipher_mode_code_str_map_elem *map =
+		ecryptfs_cipher_mode_code_str_map;
+
+	for(i = 0; i < ARRAY_SIZE(ecryptfs_cipher_mode_code_str_map); i++)
+		if (strcmp(mode_name, map[i].mode_str) == 0) {
+			code = map[i].mode_code;
+			break;
+		}
+
+	return code;
+}
+
+/**
+ * ecryptfs_cipher_mode_code_to_string
+ * @str: Destination to write out the cipher mode name
+ * @cipher_code: The code to conver to cipher mode name string
+ *
+ * Retruns zero in success
+ */
+int ecryptfs_cipher_mode_code_to_string(char *str, u8 mode_code)
+{
+	int rc = 0;
+	int i;
+	struct ecryptfs_cipher_mode_code_str_map_elem *map =
+		ecryptfs_cipher_mode_code_str_map;
+
+	str[0] = '\0';
+	for(i = 0; i < ARRAY_SIZE(ecryptfs_cipher_mode_code_str_map); i++)
+		if (mode_code == map[i].mode_code) {
+			strcpy(str, map[i].mode_str);
+			break;
+		}
+	if (str[0] == '\0') {
+		ecryptfs_printk(KERN_WARNING, "Cipher mode not recognized: "
+				"[%d]\n", mode_code);
+		rc = -EINVAL;
+	}
+
+	return rc;
 }
 
 struct ecryptfs_cipher_code_str_map_elem {
