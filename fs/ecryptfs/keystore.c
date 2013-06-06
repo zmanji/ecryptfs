@@ -2387,7 +2387,7 @@ encrypted_session_key_set:
 	}
 	(*packet_size) += packet_size_length;
 	/* Version */
-	dest[(*packet_size)++] = crypt_stat->file_version;
+	dest[(*packet_size)++] = 0x05;
 	/* TODO: Break from RFC2440 so that arbitrary ciphers can be
 	 * specified with strings */
 	cipher_code = ecryptfs_code_for_cipher_string(crypt_stat->cipher,

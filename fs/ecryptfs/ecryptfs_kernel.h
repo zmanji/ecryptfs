@@ -228,7 +228,7 @@ struct ecryptfs_crypt_stat {
 #define ECRYPTFS_UNLINK_SIGS          0x00002000
 #define ECRYPTFS_I_SIZE_INITIALIZED   0x00004000
 	u32 flags;
-	u8 file_version;
+	unsigned int file_version;
 	size_t iv_bytes;
 	size_t metadata_size;
 	size_t extent_size; /* Data extent size; default is 4096 */

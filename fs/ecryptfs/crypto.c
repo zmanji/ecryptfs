@@ -964,7 +964,7 @@ void ecryptfs_write_crypt_stat_flags(char *page_virt,
 		if (crypt_stat->flags & ecryptfs_flag_map[i].local_flag)
 			flags |= ecryptfs_flag_map[i].file_flag;
 	/* Version is in top 8 bits of the 32-bit flag vector */
-	flags |= (((crypt_stat->file_version) << 24) & 0xFF000000);
+	flags |= ((((u8)crypt_stat->file_version) << 24) & 0xFF000000);
 	put_unaligned_be32(flags, page_virt);
 	(*written) = 4;
 }
