@@ -4,7 +4,8 @@
 /* Version verification for shared data structures w/ userspace */
 #define ECRYPTFS_VERSION_MAJOR 0x00
 #define ECRYPTFS_VERSION_MINOR 0x04
-#define ECRYPTFS_SUPPORTED_FILE_VERSION 0x05
+/* TODO: Increment and use this value properly */
+#define ECRYPTFS_SUPPORTED_FILE_VERSION 0x03
 /* These flags indicate which features are supported by the kernel
  * module; userspace tools such as the mount helper read the feature
  * bits from a sysfs handle in order to determine how to behave. */
@@ -30,7 +31,7 @@
 #define ECRYPTFS_PASSWORD_SIG_SIZE ECRYPTFS_SIG_SIZE_HEX
 #define ECRYPTFS_MAX_KEY_BYTES 64
 #define ECRYPTFS_MAX_ENCRYPTED_KEY_BYTES 512
-#define ECRYPTFS_FILE_VERSION 0x05
+#define ECRYPTFS_FILE_VERSION 0x03
 #define ECRYPTFS_MAX_PKI_NAME_BYTES 16
 
 #define RFC2440_CIPHER_DES3_EDE 0x02
