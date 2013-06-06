@@ -44,6 +44,8 @@
 
 #define RFC2440_CIPHER_RSA 0x01
 
+#define ECRYPTFS_CIPHER_MODE_CBC 0x01
+
 /**
  * For convenience, we may need to pass around the encrypted session
  * key between kernel and userspace because the authentication token
