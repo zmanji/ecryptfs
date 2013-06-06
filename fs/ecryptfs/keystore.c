@@ -2387,6 +2387,7 @@ encrypted_session_key_set:
 	}
 	(*packet_size) += packet_size_length;
 	/* Version */
+	/* XXX: use file_version field of crypt stat here */
 	dest[(*packet_size)++] = 0x05;
 	/* TODO: Break from RFC2440 so that arbitrary ciphers can be
 	 * specified with strings */
