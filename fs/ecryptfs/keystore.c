@@ -2361,7 +2361,8 @@ encrypted_session_key_set:
 			   + 3                       /* Max Tag 3 packet size */
 			   + 1                       /* Version */
 			   + 1                       /* Cipher code */
-			   + 1                       /* Cipher mode code */
+			   /* XXX: Why does this line cause everything to fail? */
+			   /* + 1                       /1* Cipher mode code *1/ */
 			   + 1                       /* S2K specifier */
 			   + 1                       /* Hash identifier */
 			   + ECRYPTFS_SALT_SIZE      /* Salt */
