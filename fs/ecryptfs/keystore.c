@@ -1415,7 +1415,7 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 	 *
 	 * (ECRYPTFS_SALT_SIZE + 7) minimum packet size
 	 */
-	if (max_packet_size < (ECRYPTFS_SALT_SIZE + 7)) {
+	if (max_packet_size < (ECRYPTFS_SALT_SIZE + 8)) {
 		printk(KERN_ERR "Max packet size too large\n");
 		rc = -EINVAL;
 		goto out;
@@ -1443,7 +1443,7 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 		       rc);
 		goto out_free;
 	}
-	if (unlikely(body_size < (ECRYPTFS_SALT_SIZE + 5))) {
+	if (unlikely(body_size < (ECRYPTFS_SALT_SIZE + 6))) {
 		printk(KERN_WARNING "Invalid body size ([%td])\n", body_size);
 		rc = -EINVAL;
 		goto out_free;
@@ -1455,7 +1455,7 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 		goto out_free;
 	}
 	(*new_auth_tok)->session_key.encrypted_key_size =
-		(body_size - (ECRYPTFS_SALT_SIZE + 5));
+		(body_size - (ECRYPTFS_SALT_SIZE + 6));
 	if ((*new_auth_tok)->session_key.encrypted_key_size
 	    > ECRYPTFS_MAX_ENCRYPTED_KEY_BYTES) {
 		printk(KERN_WARNING "Tag 3 packet contains key larger "
@@ -2361,8 +2361,7 @@ encrypted_session_key_set:
 			   + 3                       /* Max Tag 3 packet size */
 			   + 1                       /* Version */
 			   + 1                       /* Cipher code */
-			   /* XXX: Why does this line cause everything to fail? */
-			   /* + 1                       /1* Cipher mode code *1/ */
+			   + 1                       /* Cipher mode code */
 			   + 1                       /* S2K specifier */
 			   + 1                       /* Hash identifier */
 			   + ECRYPTFS_SALT_SIZE      /* Salt */
