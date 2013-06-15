@@ -1379,6 +1379,7 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 	size_t body_size;
 	struct ecryptfs_auth_tok_list_item *auth_tok_list_item;
 	size_t length_size;
+	size_t min_packet_size;
 	u8 file_version;
 	int rc = 0;
 
@@ -1389,34 +1390,45 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 	 * packet tag 3
 	 *
 	 * This header deviates from the RFC in two ways:
-	 * 1. There is an additional field describing which cipher mode was
-	 * used.
+	 * 1. There is an additional (optional) field describing which cipher
+	 * mode was used.
 	 *
 	 * 2. The version field is used to differentiate between different
-	 * versions of the header instead of the different version of tag 3 in
-	 * the RFC.
+	 * versions of the header as used in eCryptfs instead of the different
+	 * version of tag 3 in the RFC.
 	 *
-	 * Version 0x03 is a header that does not have the additional
+	 * Version 0x04 is a header that does not have the additional
 	 * cipher mode field. The cipher mode is then assumed to be CBC.
 	 *
-	 * Veersion 0x05 is a header that does have the additional cipher mode
+	 * Version 0x05 is a header that does have the additional cipher mode
 	 * field. The cipher mode is taken from this header.
 	 *
 	 * Tag 3 identifier (1 byte)
 	 * Max Tag 3 packet size (max 3 bytes)
 	 * Version (1 byte)
 	 * Cipher code (1 byte)
-	 * Cipher mode code (1 byte)
+	 * Cipher mode code (1 byte) (Optional, Depends on Version)
 	 * S2K specifier (1 byte)
 	 * Hash identifier (1 byte)
 	 * Salt (ECRYPTFS_SALT_SIZE)
 	 * Hash iterations (1 byte)
 	 * Encrypted key (arbitrary)
 	 *
-	 * (ECRYPTFS_SALT_SIZE + 7) minimum packet size
+	 * (ECRYPTFS_SALT_SIZE + 7) minimum packet size for Version 0x04
 	 */
-	if (max_packet_size < (ECRYPTFS_SALT_SIZE + 8)) {
-		printk(KERN_ERR "Max packet size too large\n");
+
+	/* Holds the minimum amount of data for a version 0x04 packet */
+	min_packet_size = (1 /* Version */
+			   + 1 /* Cipher Code */
+			   + 1 /* S2K Specifier */
+			   + 1 /* Hash Identifier */
+			   + ECRYPTFS_SALT_SIZE
+			   + 1 /* Hash Iterations */
+			  );
+
+	if (max_packet_size < (ECRYPTFS_SALT_SIZE + 7)) {
+		printk(KERN_ERR "Max packet size too small to read smallest"
+				"packet\n");
 		rc = -EINVAL;
 		goto out;
 	}
@@ -1443,7 +1455,7 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 		       rc);
 		goto out_free;
 	}
-	if (unlikely(body_size < (ECRYPTFS_SALT_SIZE + 6))) {
+	if (unlikely(body_size < min_packet_size)) {
 		printk(KERN_WARNING "Invalid body size ([%td])\n", body_size);
 		rc = -EINVAL;
 		goto out_free;
@@ -1454,19 +1466,23 @@ parse_tag_3_packet(struct ecryptfs_crypt_stat *crypt_stat,
 		rc = -EINVAL;
 		goto out_free;
 	}
+	file_version = data[(*packet_size)++];
+	if (unlikely(file_version != 0x04 && file_version != 0x05)) {
+		printk(KERN_WARNING "Unknown version number [%d]\n",
+		       file_version);
+		rc = -EINVAL;
+		goto out_free;
+	}
+	if (file_version != 0x04) {
+		/* This file version has an extra field for cipher mode code */
+		min_packet_size += 1;
+	}
 	(*new_auth_tok)->session_key.encrypted_key_size =
-		(body_size - (ECRYPTFS_SALT_SIZE + 6));
+		(body_size - min_packet_size);
 	if ((*new_auth_tok)->session_key.encrypted_key_size
 	    > ECRYPTFS_MAX_ENCRYPTED_KEY_BYTES) {
 		printk(KERN_WARNING "Tag 3 packet contains key larger "
 		       "than ECRYPTFS_MAX_ENCRYPTED_KEY_BYTES\n");
-		rc = -EINVAL;
-		goto out_free;
-	}
-	file_version = data[(*packet_size)++];
-	if (unlikely(file_version != 0x04 && file_version != 0x05)) {
-		printk(KERN_WARNING "Unknown version number [%d]\n",
-		       data[(*packet_size) - 1]);
 		rc = -EINVAL;
 		goto out_free;
 	}
