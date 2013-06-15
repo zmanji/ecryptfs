@@ -2347,26 +2347,51 @@ encrypted_session_key_set:
 	 * used.
 	 *
 	 * 2. The version field is used to differentiate between different
-	 * versions of the header instead of the different version of tag 3 in
-	 * the RFC.
+	 * versions of the header as used in eCryptFS instead of the different
+	 * versions of tag 3 in the RFC.
 	 *
-	 * Version 0x04 is a header that does not have the additional
-	 * cipher mode field. The cipher mode is then assumed to be CBC.
+	 * Version 0x04 is the first version of the header used in eCryptFS.
+	 * This number comes from the RFC. It's used in all cases when CBC mode
+	 * is used. This header does not have an additional field for the cipher
+	 * mode, instead version 0x04 tags are assumed to use CBC.
 	 *
-	 * Veersion 0x05 is a header that does have the additional cipher mode
-	 * field. The cipher mode is taken from this header.
+	 * This is for forwards compatability, where previous versions of
+	 * eCryptFS can still read and write CBC encrypted files from new
+	 * versions.
+	 *
+	 * Version 0x05 is a header that does have the additional cipher mode
+	 * field. In this case the cipher mode is taken from this header. This
+	 * is written out for any cipher mode that is not CBC.
+	 *
+	 * Old Versions of eCryptFS do not support cipher modes other than CBC,
+	 * they will error out when opening files with version 0x05 tags.
+	 *
 	 * */
+
+	cipher_mode_code =
+		ecryptfs_code_for_cipher_mode_string(crypt_stat->cipher_mode);
+
+	if (cipher_mode_code == 0) {
+		ecryptfs_printk(KERN_WARNING, "Unable to generate code for "
+				"cipher mode [%s]\n", crypt_stat->cipher_mode);
+		rc = -EINVAL;
+		goto out;
+	}
 
 	max_packet_size = (1                         /* Tag 3 identifier */
 			   + 3                       /* Max Tag 3 packet size */
 			   + 1                       /* Version */
 			   + 1                       /* Cipher code */
-			   + 1                       /* Cipher mode code */
 			   + 1                       /* S2K specifier */
 			   + 1                       /* Hash identifier */
 			   + ECRYPTFS_SALT_SIZE      /* Salt */
 			   + 1                       /* Hash iterations */
 			   + key_rec->enc_key_size); /* Encrypted key size */
+
+	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_CBC) {
+		max_packet_size += 1; /* Cipher mode code. 1 Byte */
+	}
+
 	if (max_packet_size > (*remaining_bytes)) {
 		printk(KERN_ERR "Packet too large; need up to [%td] bytes, but "
 		       "there are only [%td] available\n", max_packet_size,
@@ -2386,9 +2411,12 @@ encrypted_session_key_set:
 		goto out;
 	}
 	(*packet_size) += packet_size_length;
-	/* Version */
-	/* XXX: use file_version field of crypt stat here */
-	dest[(*packet_size)++] = 0x05;
+	/* Write out tag version */
+	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_CBC) {
+		dest[(*packet_size)++] = 0x04;
+	} else {
+		dest[(*packet_size)++] = 0x05;
+	}
 	/* TODO: Break from RFC2440 so that arbitrary ciphers can be
 	 * specified with strings */
 	cipher_code = ecryptfs_code_for_cipher_string(crypt_stat->cipher,
@@ -2400,18 +2428,10 @@ encrypted_session_key_set:
 		goto out;
 	}
 
-	cipher_mode_code =
-		ecryptfs_code_for_cipher_mode_string(crypt_stat->cipher_mode);
-
-	if (cipher_mode_code == 0) {
-		ecryptfs_printk(KERN_WARNING, "Unable to generate code for "
-				"cipher mode [%s]\n", crypt_stat->cipher_mode);
-		rc = -EINVAL;
-		goto out;
-	}
-
 	dest[(*packet_size)++] = cipher_code;
-	dest[(*packet_size)++] = cipher_mode_code;
+	if (cipher_mode_code != ECRYPTFS_CIPHER_MODE_CBC) {
+		dest[(*packet_size)++] = cipher_mode_code;
+	}
 	dest[(*packet_size)++] = 0x03;	/* S2K */
 	dest[(*packet_size)++] = 0x01;	/* MD5 (TODO: parameterize) */
 	memcpy(&dest[(*packet_size)], auth_tok->token.password.salt,
