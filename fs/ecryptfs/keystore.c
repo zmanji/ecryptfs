@@ -1247,6 +1247,7 @@ parse_tag_1_packet(struct ecryptfs_crypt_stat *crypt_stat,
 	size_t body_size;
 	struct ecryptfs_auth_tok_list_item *auth_tok_list_item;
 	size_t length_size;
+	u8 tag_version;
 	int rc = 0;
 
 	(*packet_size) = 0;
@@ -1257,9 +1258,9 @@ parse_tag_1_packet(struct ecryptfs_crypt_stat *crypt_stat,
 	 *
 	 * Tag 1 identifier (1 byte)
 	 * Max Tag 1 packet size (max 3 bytes)
-	 * Version (1 byte)
+	 * Version (1 byte) (0x03 and 0x04 are valid versions)
 	 * Key identifier (8 bytes; ECRYPTFS_SIG_SIZE)
-	 * Cipher identifier (1 byte)
+	 * Cipher mode identifier (1 byte) (ignored if version is 0x03)
 	 * Encrypted key size (arbitrary)
 	 *
 	 * 12 bytes minimum packet size
@@ -1304,18 +1305,30 @@ parse_tag_1_packet(struct ecryptfs_crypt_stat *crypt_stat,
 		rc = -EINVAL;
 		goto out_free;
 	}
-	if (unlikely(data[(*packet_size)++] != 0x03)) {
+	tag_version = data[(*packet_size)++];
+	if (unlikely(tag_version != 0x03 && tag_version != 0x04)) {
 		printk(KERN_WARNING "Unknown version number [%d]\n",
-		       data[(*packet_size) - 1]);
+		       tag_version);
 		rc = -EINVAL;
 		goto out_free;
 	}
 	ecryptfs_to_hex((*new_auth_tok)->token.private_key.signature,
 			&data[(*packet_size)], ECRYPTFS_SIG_SIZE);
 	*packet_size += ECRYPTFS_SIG_SIZE;
-	/* This byte is skipped because the kernel does not need to
-	 * know which public key encryption algorithm was used */
-	(*packet_size)++;
+	if (tag_version == 0x03) {
+		/* This byte is skipped because the kernel does not need to
+		* know which public key encryption algorithm was used */
+		(*packet_size)++;
+		strcpy(crypt_stat->cipher_mode, "cbc");
+	} else {
+		/* This field is repurposed in version 0x04 to hold the
+		 * cipher mode. It is ignored in earlier verions. */
+		rc = ecryptfs_cipher_mode_code_to_string(
+				crypt_stat->cipher_mode,
+				data[(*packet_size)++]);
+		if(rc)
+			goto out_free;
+	}
 	(*new_auth_tok)->session_key.encrypted_key_size =
 		body_size - (ECRYPTFS_SIG_SIZE + 2);
 	if ((*new_auth_tok)->session_key.encrypted_key_size
@@ -2074,6 +2087,7 @@ write_tag_1_packet(char *dest, size_t *remaining_bytes,
 	size_t encrypted_session_key_valid = 0;
 	size_t packet_size_length;
 	size_t max_packet_size;
+	u8 cipher_mode_code;
 	int rc = 0;
 
 	(*packet_size) = 0;
@@ -2112,7 +2126,7 @@ encrypted_session_key_set:
 			   + 3                       /* Max Tag 1 packet size */
 			   + 1                       /* Version */
 			   + ECRYPTFS_SIG_SIZE       /* Key identifier */
-			   + 1                       /* Cipher identifier */
+			   + 1                       /* Cipher mode code */
 			   + key_rec->enc_key_size); /* Encrypted key size */
 	if (max_packet_size > (*remaining_bytes)) {
 		printk(KERN_ERR "Packet length larger than maximum allowable; "
@@ -2131,10 +2145,30 @@ encrypted_session_key_set:
 		goto out;
 	}
 	(*packet_size) += packet_size_length;
-	dest[(*packet_size)++] = 0x03; /* version 3 */
+
+	cipher_mode_code =
+		ecryptfs_code_for_cipher_mode_string(crypt_stat->cipher_mode);
+	if (cipher_mode_code == 0) {
+		ecryptfs_printk(KERN_WARNING, "Unable to generate code for "
+				"cipher mode [%s]\n", crypt_stat->cipher_mode);
+		rc = -EINVAL;
+		goto out;
+	}
+
+	/* Tag Version */
+	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_CBC) {
+		dest[(*packet_size)++] = 0x03;
+	} else {
+		dest[(*packet_size)++] = 0x04;
+	}
 	memcpy(&dest[(*packet_size)], key_rec->sig, ECRYPTFS_SIG_SIZE);
 	(*packet_size) += ECRYPTFS_SIG_SIZE;
-	dest[(*packet_size)++] = RFC2440_CIPHER_RSA;
+	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_CBC) {
+		/* Version 0x03 packets always wrote this constant */
+		dest[(*packet_size)++] = RFC2440_CIPHER_RSA;
+	} else {
+		dest[(*packet_size)++] = cipher_mode_code;
+	}
 	memcpy(&dest[(*packet_size)], key_rec->enc_key,
 	       key_rec->enc_key_size);
 	(*packet_size) += key_rec->enc_key_size;
