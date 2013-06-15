@@ -2404,7 +2404,7 @@ encrypted_session_key_set:
 			   + 1                       /* Hash iterations */
 			   + key_rec->enc_key_size); /* Encrypted key size */
 
-	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_CBC) {
+	if (cipher_mode_code != ECRYPTFS_CIPHER_MODE_CBC) {
 		max_packet_size += 1; /* Cipher mode code. 1 Byte */
 	}
 
