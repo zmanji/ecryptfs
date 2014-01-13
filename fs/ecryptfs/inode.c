@@ -720,6 +720,8 @@ upper_size_to_lower_size(struct ecryptfs_crypt_stat *crypt_stat,
 			 loff_t upper_size)
 {
 	loff_t lower_size;
+	int mode_code = ecryptfs_code_for_cipher_mode_string(
+			crypt_stat->cipher_mode);
 
 	lower_size = ecryptfs_lower_header_size(crypt_stat);
 	if (upper_size != 0) {
@@ -728,7 +730,15 @@ upper_size_to_lower_size(struct ecryptfs_crypt_stat *crypt_stat,
 		num_extents = upper_size >> crypt_stat->extent_shift;
 		if (upper_size & ~crypt_stat->extent_mask)
 			num_extents++;
-		lower_size += (num_extents * crypt_stat->extent_size);
+
+		if (mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+			lower_size +=
+				(num_extents + ((num_extents + 255) >> 8)) *
+				crypt_stat->extent_size;
+		} else {
+			lower_size += num_extents * crypt_stat->extent_size;
+
+		}
 	}
 	return lower_size;
 }

@@ -163,7 +163,6 @@ ecryptfs_copy_up_encrypted_with_header(struct page *page,
 			loff_t lower_offset =
 				((view_extent_num * crypt_stat->extent_size)
 				 - crypt_stat->metadata_size);
-
 			rc = ecryptfs_read_lower_page_segment(
 				page, (lower_offset >> PAGE_CACHE_SHIFT),
 				(lower_offset & ~PAGE_CACHE_MASK),
