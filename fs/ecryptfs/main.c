@@ -260,7 +260,7 @@ static void ecryptfs_init_mount_crypt_stat(
 static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 				  uid_t *check_ruid)
 {
-	const char *mode_white_list[] = {"cbc"};
+	const char *mode_white_list[] = {"cbc", "gcm"};
 	char *p;
 	int i = 0;
 	int rc = 0;
