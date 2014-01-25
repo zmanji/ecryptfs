@@ -487,6 +487,7 @@ static int crypt_extent(struct ecryptfs_crypt_stat *crypt_stat,
 			struct page *dst_page,
 			struct page *src_page,
 			u8 *tag_data,
+			u8 *iv_data,
 			unsigned long extent_offset, int op)
 {
 	pgoff_t page_index = op == ENCRYPT ? src_page->index : dst_page->index;
@@ -496,17 +497,35 @@ static int crypt_extent(struct ecryptfs_crypt_stat *crypt_stat,
 	struct scatterlist dst_sg[2];
 	u8 tag_data_src[ECRYPTFS_GCM_TAG_SIZE] = {0};
 	u8 tag_data_dst[ECRYPTFS_GCM_TAG_SIZE] = {0};
+	u8 cipher_mode_code;
 	size_t extent_size = crypt_stat->extent_size;
 	int rc;
 
+	cipher_mode_code = ecryptfs_code_for_cipher_mode_string(
+		crypt_stat->cipher_mode);
 	extent_base = (((loff_t)page_index) * (PAGE_CACHE_SIZE / extent_size));
-	rc = ecryptfs_derive_iv(extent_iv, crypt_stat,
-				(extent_base + extent_offset));
-	if (rc) {
-		ecryptfs_printk(KERN_ERR, "Error attempting to derive IV for "
-			"extent [0x%.16llx]; rc = [%d]\n",
-			(unsigned long long)(extent_base + extent_offset), rc);
-		goto out;
+
+
+	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+		if (op == ENCRYPT) {
+			/* Generate new IV */
+			get_random_bytes(extent_iv, ECRYPTFS_MAX_IV_BYTES);
+		} else if (op == DECRYPT) {
+			/* Copy the iv value from the auth tag page*/
+			unsigned long offset = ECRYPTFS_MAX_IV_BYTES * extent_offset;
+			memcpy(extent_iv, iv_data + offset, ECRYPTFS_MAX_IV_BYTES);
+
+		}
+
+	} else {
+		rc = ecryptfs_derive_iv(extent_iv, crypt_stat,
+					(extent_base + extent_offset));
+		if (rc) {
+			ecryptfs_printk(KERN_ERR, "Error attempting to derive IV for "
+				"extent [0x%.16llx]; rc = [%d]\n",
+				(unsigned long long)(extent_base + extent_offset), rc);
+			goto out;
+		}	
 	}
 
 	/* Copy the auth tag value from the auth tag page*/
@@ -539,6 +558,9 @@ static int crypt_extent(struct ecryptfs_crypt_stat *crypt_stat,
 	if (op == ENCRYPT) {
 		unsigned long offset = ECRYPTFS_GCM_TAG_SIZE * extent_offset;
 		memcpy(tag_data + offset, tag_data_dst, ECRYPTFS_GCM_TAG_SIZE);
+
+		offset = ECRYPTFS_MAX_IV_BYTES * extent_offset;
+		memcpy(iv_data + offset, extent_iv, ECRYPTFS_MAX_IV_BYTES);
 	}
 
 	rc = 0;
@@ -572,16 +594,18 @@ int ecryptfs_encrypt_page(struct page *page)
 {
 	struct inode *ecryptfs_inode;
 	struct ecryptfs_crypt_stat *crypt_stat;
+	struct ecryptfs_extent_metadata extent_metadata;
 	char *enc_extent_virt;
 	struct page *enc_extent_page = NULL;
 	loff_t extent_offset;
 	loff_t lower_offset;
 	int num_extents;
 	u8 *tag_data;
+	u8 *iv_data;
 	u8 cipher_mode_code;
 	int data_extent_num;
-	int auth_extent_num;
-	int auth_tags_per_extent;
+	int meta_extent_num;
+	int metadata_per_extent;
 	int rc = 0;
 
 	ecryptfs_inode = page->mapping->host;
@@ -592,7 +616,7 @@ int ecryptfs_encrypt_page(struct page *page)
 	num_extents = PAGE_CACHE_SIZE / crypt_stat->extent_size;
 	cipher_mode_code = ecryptfs_code_for_cipher_mode_string(
 		crypt_stat->cipher_mode);
-	auth_tags_per_extent = crypt_stat->extent_size / ECRYPTFS_GCM_TAG_SIZE;
+	metadata_per_extent = crypt_stat->extent_size / sizeof(extent_metadata);
 
 	enc_extent_page = alloc_page(GFP_USER);
 	if (!enc_extent_page) {
@@ -603,6 +627,7 @@ int ecryptfs_encrypt_page(struct page *page)
 	}
 
 	tag_data = kmalloc(num_extents * ECRYPTFS_GCM_TAG_SIZE, GFP_KERNEL);
+	iv_data = kmalloc(num_extents * ECRYPTFS_MAX_IV_BYTES, GFP_KERNEL);
 
 	if (!tag_data) {
 		rc = -ENOMEM;
@@ -612,11 +637,19 @@ int ecryptfs_encrypt_page(struct page *page)
 
 	}
 
+	if (!iv_data) {
+		rc = -ENOMEM;
+		ecryptfs_printk(KERN_ERR, "Error allocating extra memory for "
+				"iv data\n");
+		goto out;
+
+	}
+
 	for (extent_offset = 0;
 	     extent_offset < num_extents;
 	     extent_offset++) {
 		rc = crypt_extent(crypt_stat, enc_extent_page, page, tag_data,
-				  extent_offset, ENCRYPT);
+				  iv_data, extent_offset, ENCRYPT);
 		if (rc) {
 			printk(KERN_ERR "%s: Error encrypting extent; "
 			       "rc = [%d]\n", __func__, rc);
@@ -639,10 +672,10 @@ int ecryptfs_encrypt_page(struct page *page)
 			data_extent_num += extent_offset;
 			lower_offset += (data_extent_num - 1)
 				* crypt_stat->extent_size;
-			auth_extent_num = (data_extent_num
-				+ (auth_tags_per_extent - 1))
-				/ auth_tags_per_extent;
-			lower_offset += auth_extent_num
+			meta_extent_num = (data_extent_num
+				+ (metadata_per_extent - 1))
+				/ metadata_per_extent;
+			lower_offset += meta_extent_num
 				* crypt_stat->extent_size;
 
 			rc = ecryptfs_write_lower(ecryptfs_inode,
@@ -656,16 +689,21 @@ int ecryptfs_encrypt_page(struct page *page)
 				goto out;
 			}
 
+			memcpy(extent_metadata.iv_bytes, iv_data +
+				ECRYPTFS_MAX_IV_BYTES * extent_offset,
+				ECRYPTFS_MAX_IV_BYTES);
+			memcpy(extent_metadata.auth_tag_bytes, tag_data +
+				ECRYPTFS_GCM_TAG_SIZE * extent_offset,
+				ECRYPTFS_GCM_TAG_SIZE);
 			lower_offset = ecryptfs_lower_header_size(crypt_stat);
-			lower_offset += (auth_extent_num - 1) *
-				(auth_tags_per_extent + 1) *
+			lower_offset += (meta_extent_num - 1) *
+				(metadata_per_extent + 1) *
 				crypt_stat->extent_size;
 
 			rc = ecryptfs_write_lower(ecryptfs_inode,
-					tag_data + (ECRYPTFS_GCM_TAG_SIZE
-						* extent_offset),
+					&extent_metadata,
 					lower_offset,
-					ECRYPTFS_GCM_TAG_SIZE);
+					sizeof(extent_metadata));
 			if (rc < 0) {
 				printk(KERN_ERR "Error attempting to write lower"
 						"page; rc = [%d]\n", rc);
@@ -692,6 +730,7 @@ out:
 		__free_page(enc_extent_page);
 	}
 	kfree(tag_data);
+	kfree(iv_data);
 	return rc;
 }
 
@@ -721,15 +760,17 @@ int ecryptfs_decrypt_page(struct page *page)
 {
 	struct inode *ecryptfs_inode;
 	struct ecryptfs_crypt_stat *crypt_stat;
+	struct ecryptfs_extent_metadata extent_metadata;
 	char *page_virt;
 	unsigned long extent_offset;
 	loff_t lower_offset;
 	int num_extents;
 	u8 *tag_data;
+	u8 *iv_data;
 	u8 cipher_mode_code;
 	int data_extent_num;
-	int auth_extent_num;
-	int auth_tags_per_extent;
+	int meta_extent_num;
+	int metadata_per_extent;
 	int rc = 0;
 
 	ecryptfs_inode = page->mapping->host;
@@ -738,13 +779,21 @@ int ecryptfs_decrypt_page(struct page *page)
 	BUG_ON(!(crypt_stat->flags & ECRYPTFS_ENCRYPTED));
 
 	num_extents = PAGE_CACHE_SIZE / crypt_stat->extent_size;
-	auth_tags_per_extent = crypt_stat->extent_size / ECRYPTFS_GCM_TAG_SIZE;
+	metadata_per_extent = crypt_stat->extent_size / sizeof(extent_metadata);
 	cipher_mode_code = ecryptfs_code_for_cipher_mode_string(
 		crypt_stat->cipher_mode);
 
 	tag_data = kmalloc(num_extents * ECRYPTFS_GCM_TAG_SIZE, GFP_KERNEL);
+	iv_data = kmalloc(num_extents * ECRYPTFS_MAX_IV_BYTES, GFP_KERNEL);
 
 	if (!tag_data) {
+		rc = -ENOMEM;
+		ecryptfs_printk(KERN_ERR, "Error allocating extra memory for "
+				"encrypted extent\n");
+		goto out;
+	}
+
+	if (!iv_data) {
 		rc = -ENOMEM;
 		ecryptfs_printk(KERN_ERR, "Error allocating extra memory for "
 				"encrypted extent\n");
@@ -766,10 +815,10 @@ int ecryptfs_decrypt_page(struct page *page)
 			data_extent_num += extent_offset;
 			lower_offset += (data_extent_num - 1)
 				* crypt_stat->extent_size;
-			auth_extent_num = (data_extent_num +
-				(auth_tags_per_extent - 1))
-				/ auth_tags_per_extent;
-			lower_offset += auth_extent_num
+			meta_extent_num = (data_extent_num
+				+ (metadata_per_extent - 1))
+				/ metadata_per_extent;
+			lower_offset += meta_extent_num
 				* crypt_stat->extent_size;
 
 			rc = ecryptfs_read_lower(page_virt +
@@ -785,14 +834,21 @@ int ecryptfs_decrypt_page(struct page *page)
 			}
 
 			lower_offset = ecryptfs_lower_header_size(crypt_stat);
-			lower_offset += (auth_extent_num - 1) *
-				(auth_tags_per_extent + 1) *
+			lower_offset += (meta_extent_num - 1) *
+				(metadata_per_extent + 1) *
 				crypt_stat->extent_size;
 
-			rc = ecryptfs_read_lower(tag_data +
-					(ECRYPTFS_GCM_TAG_SIZE * extent_offset),
+			rc = ecryptfs_read_lower(&extent_metadata,
 					lower_offset,
-					ECRYPTFS_GCM_TAG_SIZE, ecryptfs_inode);
+					sizeof(extent_metadata), ecryptfs_inode);
+
+			memcpy(tag_data + ECRYPTFS_GCM_TAG_SIZE * extent_offset,
+				&(extent_metadata.auth_tag_bytes),
+				ECRYPTFS_GCM_TAG_SIZE);
+
+			memcpy(iv_data + ECRYPTFS_MAX_IV_BYTES * extent_offset,
+				&(extent_metadata.iv_bytes),
+				ECRYPTFS_MAX_IV_BYTES);
 
 			if (rc < 0) {
 				printk(KERN_ERR "Error attempting to read lower"
@@ -818,6 +874,8 @@ int ecryptfs_decrypt_page(struct page *page)
 		rc = crypt_extent(crypt_stat, page, page,
 				tag_data + (ECRYPTFS_GCM_TAG_SIZE
 					* extent_offset),
+				iv_data + (ECRYPTFS_MAX_IV_BYTES
+					* extent_offset),
 				extent_offset, DECRYPT);
 		if (rc) {
 			printk(KERN_ERR "%s: Error encrypting extent; "
@@ -829,6 +887,7 @@ int ecryptfs_decrypt_page(struct page *page)
 out:
 	kunmap(page);
 	kfree(tag_data);
+	kfree(iv_data);
 	return rc;
 }
 
