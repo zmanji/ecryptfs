@@ -626,9 +626,8 @@ int ecryptfs_encrypt_page(struct page *page)
 		goto out;
 	}
 
-	tag_data = kmalloc(num_extents * ECRYPTFS_GCM_TAG_SIZE, GFP_KERNEL);
-	iv_data = kmalloc(num_extents * ECRYPTFS_MAX_IV_BYTES, GFP_KERNEL);
-
+	tag_data = kmalloc(num_extents *
+		(ECRYPTFS_GCM_TAG_SIZE + ECRYPTFS_MAX_IV_BYTES), GFP_KERNEL);
 	if (!tag_data) {
 		rc = -ENOMEM;
 		ecryptfs_printk(KERN_ERR, "Error allocating extra memory for "
@@ -636,14 +635,7 @@ int ecryptfs_encrypt_page(struct page *page)
 		goto out;
 
 	}
-
-	if (!iv_data) {
-		rc = -ENOMEM;
-		ecryptfs_printk(KERN_ERR, "Error allocating extra memory for "
-				"iv data\n");
-		goto out;
-
-	}
+	iv_data = tag_data + (num_extents * ECRYPTFS_MAX_IV_BYTES);
 
 	for (extent_offset = 0;
 	     extent_offset < num_extents;
@@ -701,7 +693,7 @@ int ecryptfs_encrypt_page(struct page *page)
 				crypt_stat->extent_size;
 
 			rc = ecryptfs_write_lower(ecryptfs_inode,
-					&extent_metadata,
+					(void*)&extent_metadata,
 					lower_offset,
 					sizeof(extent_metadata));
 			if (rc < 0) {
@@ -730,7 +722,6 @@ out:
 		__free_page(enc_extent_page);
 	}
 	kfree(tag_data);
-	kfree(iv_data);
 	return rc;
 }
 
@@ -783,22 +774,16 @@ int ecryptfs_decrypt_page(struct page *page)
 	cipher_mode_code = ecryptfs_code_for_cipher_mode_string(
 		crypt_stat->cipher_mode);
 
-	tag_data = kmalloc(num_extents * ECRYPTFS_GCM_TAG_SIZE, GFP_KERNEL);
-	iv_data = kmalloc(num_extents * ECRYPTFS_MAX_IV_BYTES, GFP_KERNEL);
-
+	tag_data = kmalloc(num_extents *
+		(ECRYPTFS_GCM_TAG_SIZE + ECRYPTFS_MAX_IV_BYTES), GFP_KERNEL);
 	if (!tag_data) {
 		rc = -ENOMEM;
 		ecryptfs_printk(KERN_ERR, "Error allocating extra memory for "
-				"encrypted extent\n");
+				"auth tag\n");
 		goto out;
-	}
 
-	if (!iv_data) {
-		rc = -ENOMEM;
-		ecryptfs_printk(KERN_ERR, "Error allocating extra memory for "
-				"encrypted extent\n");
-		goto out;
 	}
+	iv_data = tag_data + (num_extents * ECRYPTFS_MAX_IV_BYTES);
 
 	lower_offset = lower_offset_for_page(crypt_stat, page);
 	page_virt = kmap(page);
@@ -838,7 +823,7 @@ int ecryptfs_decrypt_page(struct page *page)
 				(metadata_per_extent + 1) *
 				crypt_stat->extent_size;
 
-			rc = ecryptfs_read_lower(&extent_metadata,
+			rc = ecryptfs_read_lower((void*)&extent_metadata,
 					lower_offset,
 					sizeof(extent_metadata), ecryptfs_inode);
 
@@ -887,7 +872,6 @@ int ecryptfs_decrypt_page(struct page *page)
 out:
 	kunmap(page);
 	kfree(tag_data);
-	kfree(iv_data);
 	return rc;
 }
 
