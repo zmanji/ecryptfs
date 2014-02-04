@@ -224,11 +224,13 @@ static int ecryptfs_readpage(struct file *file, struct page *page)
 			}
 		}
 	} else {
-		rc = ecryptfs_decrypt_page(page);
-		if (rc) {
-			ecryptfs_printk(KERN_ERR, "Error decrypting page; "
-					"rc = [%d]\n", rc);
-			goto out;
+		if (PageUptodate(page)) {
+			rc = ecryptfs_decrypt_page(page);
+			if (rc) {
+				ecryptfs_printk(KERN_ERR, "Error decrypting page; "
+						"rc = [%d]\n", rc);
+				goto out;
+			}
 		}
 	}
 out:
