@@ -454,7 +454,12 @@ static int crypt_scatterlist(struct ecryptfs_crypt_stat *crypt_stat,
 		rc = crypto_ablkcipher_decrypt(ablk_req);
 
 	if (rc == -EINPROGRESS || rc == -EBUSY) {
-		struct extent_crypt_result *ecr = ablk_req->base.data;
+		struct extent_crypt_result *ecr;
+		if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+			ecr = aead_req->base.data;
+		} else {
+			ecr = ablk_req->base.data;
+		}
 
 		wait_for_completion(&ecr->completion);
 		rc = ecr->rc;
