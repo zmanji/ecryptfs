@@ -510,8 +510,11 @@ static int crypt_extent(struct ecryptfs_crypt_stat *crypt_stat,
 	u8 tag_data_src[ECRYPTFS_GCM_TAG_SIZE] = {0};
 	u8 tag_data_dst[ECRYPTFS_GCM_TAG_SIZE] = {0};
 	size_t extent_size = crypt_stat->extent_size;
+	u8 cipher_mode_code;
 	int rc;
 
+	cipher_mode_code =
+		ecryptfs_code_for_cipher_mode_string(crypt_stat->cipher_mode);
 	extent_base = (((loff_t)page_index) * (PAGE_CACHE_SIZE / extent_size));
 	rc = ecryptfs_derive_iv(extent_iv, crypt_stat,
 				(extent_base + extent_offset));
@@ -523,7 +526,7 @@ static int crypt_extent(struct ecryptfs_crypt_stat *crypt_stat,
 	}
 
 	/* Copy the auth tag value from the auth tag page*/
-	if (op == DECRYPT) {
+	if (op == DECRYPT && cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
 		unsigned long offset = ECRYPTFS_GCM_TAG_SIZE * extent_offset;
 		memcpy(tag_data_src, tag_data + offset, ECRYPTFS_GCM_TAG_SIZE);
 
@@ -549,7 +552,7 @@ static int crypt_extent(struct ecryptfs_crypt_stat *crypt_stat,
 	}
 
 	/* Copy the new auth tag value to the auth tag page */
-	if (op == ENCRYPT) {
+	if (op == ENCRYPT && cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
 		unsigned long offset = ECRYPTFS_GCM_TAG_SIZE * extent_offset;
 		memcpy(tag_data + offset, tag_data_dst, ECRYPTFS_GCM_TAG_SIZE);
 	}
