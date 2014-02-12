@@ -415,9 +415,17 @@ static int crypt_scatterlist(struct ecryptfs_crypt_stat *crypt_stat,
 			goto out;
 		}
 		crypt_stat->flags |= ECRYPTFS_KEY_SET;
-		rc = crypto_aead_setauthsize(
-				(struct crypto_aead *)crypt_stat->tfm,
-				ECRYPTFS_GCM_TAG_SIZE);
+		if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+			rc = crypto_aead_setauthsize(
+					(struct crypto_aead *)crypt_stat->tfm,
+					ECRYPTFS_GCM_TAG_SIZE);
+			if(rc) {
+				ecryptfs_printk(KERN_ERR,
+						"Error setting authsize; "
+						"rc = [%d]\n", rc);
+				goto out;
+			}
+		}
 	}
 	mutex_unlock(&crypt_stat->cs_tfm_mutex);
 
