@@ -681,6 +681,7 @@ int ecryptfs_init_crypt_ctx(struct ecryptfs_crypt_stat *crypt_stat)
 {
 	char *full_alg_name;
 	int rc = -EINVAL;
+	int cipher_mode_code;
 
 	ecryptfs_printk(KERN_DEBUG,
 			"Initializing cipher [%s]; strlen = [%d]; "
@@ -697,8 +698,16 @@ int ecryptfs_init_crypt_ctx(struct ecryptfs_crypt_stat *crypt_stat)
 						crypt_stat->cipher_mode);
 	if (rc)
 		goto out_unlock;
-	crypt_stat->tfm = (struct crypto_tfm *)
+	cipher_mode_code = ecryptfs_code_for_cipher_mode_string(
+		crypt_stat->cipher_mode);
+	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+		crypt_stat->tfm = (struct crypto_tfm *)
+			crypto_alloc_aead(full_alg_name, 0, 0);
+	} else {
+		crypt_stat->tfm = (struct crypto_tfm *)
 			crypto_alloc_ablkcipher(full_alg_name, 0, 0);
+	}
+
 	if (IS_ERR(crypt_stat->tfm)) {
 		rc = PTR_ERR(crypt_stat->tfm);
 		crypt_stat->tfm = NULL;
@@ -707,8 +716,14 @@ int ecryptfs_init_crypt_ctx(struct ecryptfs_crypt_stat *crypt_stat)
 				full_alg_name);
 		goto out_free;
 	}
-	crypto_ablkcipher_set_flags((struct crypto_ablkcipher *)
+
+	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+		crypto_aead_set_flags((struct crypto_aead *) crypt_stat->tfm,
+				CRYPTO_TFM_REQ_WEAK_KEY);
+	} else {
+		crypto_ablkcipher_set_flags((struct crypto_ablkcipher *)
 				crypt_stat->tfm, CRYPTO_TFM_REQ_WEAK_KEY);
+	}
 	rc = 0;
 out_free:
 	kfree(full_alg_name);
