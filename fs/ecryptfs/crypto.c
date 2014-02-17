@@ -485,7 +485,82 @@ static loff_t lower_offset_for_page(struct ecryptfs_crypt_stat *crypt_stat,
 }
 
 /**
- * crypt_extent
+ * crypt_extent_aead
+ * @crypt_stat: crypt_stat containing cryptographic context for the
+ *              encryption operation
+ * @dst_page: The page to write the result into
+ * @src_page: The page to read from
+ * @tag_data: 
+ * @iv_data: 
+ * @extent_offset: Page extent offset for use in generating IV
+ * @op: ENCRYPT or DECRYPT to indicate the desired operation
+ *
+ * Encrypts or decrypts one extent of data.
+ *
+ * Return zero on success; non-zero otherwise
+ */
+static int crypt_extent_aead (struct ecryptfs_crypt_stat *crypt_stat,
+				struct page *dst_page,
+				struct page *src_page,
+				u8 *tag_data, u8 *iv_data,
+				unsigned long extent_offset, int op)
+{
+	pgoff_t page_index = op == ENCRYPT ? src_page->index : dst_page->index;
+	loff_t extent_base;
+	char extent_iv[ECRYPTFS_MAX_IV_BYTES];
+	struct scatterlist src_sg[2];
+	struct scatterlist dst_sg[2];
+	size_t extent_size = crypt_stat->extent_size;
+	u8 tag_data_src[ECRYPTFS_GCM_TAG_SIZE] = {0};
+	u8 tag_data_dst[ECRYPTFS_GCM_TAG_SIZE] = {0};
+	int rc;
+
+	extent_base = (((loff_t)page_index) * (PAGE_CACHE_SIZE / extent_size));
+
+	if (op == ENCRYPT) {
+		get_random_bytes(extent_iv, ECRYPTFS_MAX_IV_BYTES);
+	} else if (op == DECRYPT) {
+		unsigned long offset = ECRYPTFS_MAX_IV_BYTES * extent_offset;
+		memcpy(extent_iv, iv_data + offset, ECRYPTFS_MAX_IV_BYTES);
+		offset = ECRYPTFS_GCM_TAG_SIZE * extent_offset;
+		memcpy(tag_data_src, tag_data + offset, ECRYPTFS_GCM_TAG_SIZE);
+	}
+
+	sg_init_table(&src_sg[0], 2);
+	sg_init_table(&dst_sg[0], 2);
+
+	sg_set_page(&src_sg[0], src_page, extent_size,
+		extent_offset * extent_size);
+	sg_set_buf(&src_sg[1], tag_data_src, ARRAY_SIZE(tag_data_src));
+
+	sg_set_page(&dst_sg[0], dst_page, extent_size,
+		extent_offset * extent_size);
+	sg_set_buf(&dst_sg[1], tag_data_dst, ARRAY_SIZE(tag_data_dst));
+
+	rc = crypt_scatterlist(crypt_stat, &dst_sg[0], &src_sg[0], extent_size,
+				extent_iv, op);
+
+	if (rc < 0) {
+		printk(KERN_ERR "%s: Error attempting to crypt page with "
+		       "page_index = [%ld], extent_offset = [%ld]; "
+		       "rc = [%d]\n", __func__, page_index, extent_offset, rc);
+		goto out;
+	}
+	rc = 0;
+
+	if (op == ENCRYPT) {
+		unsigned long offset = ECRYPTFS_GCM_TAG_SIZE * extent_offset;
+		memcpy(tag_data + offset, tag_data_dst, ECRYPTFS_GCM_TAG_SIZE);
+
+		offset = ECRYPTFS_MAX_IV_BYTES * extent_offset;
+		memcpy(iv_data + offset, extent_iv, ECRYPTFS_MAX_IV_BYTES);
+	}
+out:
+	return rc;
+}
+
+/**
+ * crypt_extent_ablk
  * @crypt_stat: crypt_stat containing cryptographic context for the
  *              encryption operation
  * @dst_page: The page to write the result into
@@ -497,7 +572,7 @@ static loff_t lower_offset_for_page(struct ecryptfs_crypt_stat *crypt_stat,
  *
  * Return zero on success; non-zero otherwise
  */
-static int crypt_extent(struct ecryptfs_crypt_stat *crypt_stat,
+static int crypt_extent_ablk(struct ecryptfs_crypt_stat *crypt_stat,
 			struct page *dst_page,
 			struct page *src_page,
 			unsigned long extent_offset, int op)
@@ -510,6 +585,7 @@ static int crypt_extent(struct ecryptfs_crypt_stat *crypt_stat,
 	int rc;
 
 	extent_base = (((loff_t)page_index) * (PAGE_CACHE_SIZE / extent_size));
+
 	rc = ecryptfs_derive_iv(extent_iv, crypt_stat,
 				(extent_base + extent_offset));
 	if (rc) {
@@ -613,8 +689,13 @@ int ecryptfs_encrypt_page(struct page *page)
 	for (extent_offset = 0;
 	     extent_offset < (PAGE_CACHE_SIZE / crypt_stat->extent_size);
 	     extent_offset++) {
-		rc = crypt_extent(crypt_stat, enc_extent_page, page,
-				  extent_offset, ENCRYPT);
+		if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+			rc = crypt_extent_aead(crypt_stat, enc_extent_page,
+				page, tag_data, iv_data, extent_offset, ENCRYPT);
+		} else {
+			rc = crypt_extent_ablk(crypt_stat, enc_extent_page,
+				page, extent_offset, ENCRYPT);
+		}
 		if (rc) {
 			printk(KERN_ERR "%s: Error encrypting extent; "
 			       "rc = [%d]\n", __func__, rc);
@@ -725,8 +806,13 @@ int ecryptfs_decrypt_page(struct page *page)
 	for (extent_offset = 0;
 	     extent_offset < (PAGE_CACHE_SIZE / crypt_stat->extent_size);
 	     extent_offset++) {
-		rc = crypt_extent(crypt_stat, page, page,
+		if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+			rc = crypt_extent_aead(crypt_stat, page, page,
+				  tag_data, iv_data, extent_offset, DECRYPT);
+		} else {
+			rc = crypt_extent_ablk(crypt_stat, page, page,
 				  extent_offset, DECRYPT);
+		}
 		if (rc) {
 			printk(KERN_ERR "%s: Error encrypting extent; "
 			       "rc = [%d]\n", __func__, rc);
