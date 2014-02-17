@@ -842,6 +842,61 @@ int ecryptfs_decrypt_page(struct page *page)
 					"iv_data\n");
 			goto out;
 		}	
+
+		for (extent_offset = 0; extent_offset < num_extents;
+				extent_offset++) {
+
+			/*
+			 * Lower offset must take into account the number of
+			 * data extents, auth tag extents, and header size.
+			 */
+			lower_offset = ecryptfs_lower_header_size(crypt_stat);
+			data_extent_num = (page->index * num_extents) + 1;
+			data_extent_num += extent_offset;
+			lower_offset += (data_extent_num - 1)
+				* crypt_stat->extent_size;
+			meta_extent_num = (data_extent_num
+				+ (metadata_per_extent - 1))
+				/ metadata_per_extent;
+			lower_offset += meta_extent_num
+				* crypt_stat->extent_size;
+
+			page_virt = kmap(page);
+			rc = ecryptfs_read_lower(page_virt +
+				(extent_offset * crypt_stat->extent_size),
+				lower_offset,
+				crypt_stat->extent_size,
+				ecryptfs_inode);
+			kunmap(page);
+
+			if (rc < 0) {
+				printk(KERN_ERR "Error attempting to read lower"
+						"page; rc = [%d]\n", rc);
+				goto out;
+			}
+
+			lower_offset = ecryptfs_lower_header_size(crypt_stat);
+			lower_offset += (meta_extent_num - 1) *
+				(metadata_per_extent + 1) *
+				crypt_stat->extent_size;
+
+			rc = ecryptfs_read_lower((void*)&extent_metadata,
+					lower_offset,
+					sizeof(extent_metadata), ecryptfs_inode);
+
+			memcpy(tag_data + ECRYPTFS_GCM_TAG_SIZE * extent_offset,
+				&(extent_metadata.auth_tag_bytes),
+				ECRYPTFS_GCM_TAG_SIZE);
+
+			memcpy(iv_data + ECRYPTFS_MAX_IV_BYTES * extent_offset,
+				&(extent_metadata.iv_bytes),
+				ECRYPTFS_MAX_IV_BYTES);
+
+			if (rc < 0) {
+				printk(KERN_ERR "Error attempting to read lower"
+						"page; rc = [%d]\n", rc);
+			}
+		}
 	} else {
 		lower_offset = lower_offset_for_page(crypt_stat, page);
 		page_virt = kmap(page);
