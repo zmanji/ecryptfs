@@ -972,6 +972,7 @@ struct ecryptfs_cipher_mode_code_str_map_elem {
 static struct ecryptfs_cipher_mode_code_str_map_elem
 ecryptfs_cipher_mode_code_str_map[] = {
 	{"cbc", ECRYPTFS_CIPHER_MODE_CBC},
+	{"gcm", ECRYPTFS_CIPHER_MODE_GCM}
 };
 
 /**
@@ -999,7 +1000,7 @@ u8 ecryptfs_code_for_cipher_mode_string(char *mode_name)
 /**
  * ecryptfs_cipher_mode_code_to_string
  * @str: Destination to write out the cipher mode name
- * @cipher_code: The code to conver to cipher mode name string
+ * @cipher_mode_code: The code to conver to cipher mode name string
  *
  * Retruns zero in success
  */
