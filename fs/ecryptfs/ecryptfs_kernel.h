@@ -129,6 +129,7 @@ ecryptfs_get_key_payload_data(struct key *key)
 #define ECRYPTFS_MAX_NUM_ENC_KEYS 64
 #define ECRYPTFS_MAX_IV_BYTES 16	/* 128 bits */
 #define ECRYPTFS_SALT_BYTES 2
+#define ECRYPTFS_GCM_TAG_SIZE 16
 #define MAGIC_ECRYPTFS_MARKER 0x3c81b7f5
 #define MAGIC_ECRYPTFS_MARKER_SIZE_BYTES 8	/* 4*2 */
 #define ECRYPTFS_FILE_SIZE_BYTES (sizeof(u64))
@@ -357,6 +358,12 @@ struct ecryptfs_sb_info {
 	struct super_block *wsi_sb;
 	struct ecryptfs_mount_crypt_stat mount_crypt_stat;
 	struct backing_dev_info bdi;
+};
+
+/* extent metadata (for GCM) */
+struct ecryptfs_extent_metadata {
+	u8 iv_bytes[ECRYPTFS_MAX_IV_BYTES];
+	u8 auth_tag_bytes[ECRYPTFS_GCM_TAG_SIZE];
 };
 
 /* file private data. */
