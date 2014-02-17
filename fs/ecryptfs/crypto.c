@@ -642,6 +642,7 @@ int ecryptfs_encrypt_page(struct page *page)
 	loff_t extent_offset;
 	loff_t lower_offset;
 	int rc = 0;
+	int data_extent_num;
 	int num_extents;
 	int meta_extent_num;
 	int metadata_per_extent;
@@ -704,7 +705,59 @@ int ecryptfs_encrypt_page(struct page *page)
 	}
 
 	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+		for (extent_offset = 0; extent_offset < num_extents;
+			extent_offset++) {
 
+			/*
+			 * Lower offset must take into account the number of
+			 * data extents, auth tag extents, and header size.
+			 */
+			lower_offset = ecryptfs_lower_header_size(crypt_stat);
+			data_extent_num = (page->index * num_extents) + 1;
+			data_extent_num += extent_offset;
+			lower_offset += (data_extent_num - 1)
+				* crypt_stat->extent_size;
+			meta_extent_num = (data_extent_num
+				+ (metadata_per_extent - 1))
+				/ metadata_per_extent;
+			lower_offset += meta_extent_num
+				* crypt_stat->extent_size;
+
+			enc_extent_virt = kmap(enc_extent_page);
+			rc = ecryptfs_write_lower(ecryptfs_inode,
+					enc_extent_virt + (extent_offset
+						* crypt_stat->extent_size),
+					lower_offset,
+					crypt_stat->extent_size);
+			kunmap(enc_extent_page);
+			if (rc < 0) {
+				printk(KERN_ERR "Error attempting to write lower"
+						"page; rc = [%d]\n", rc);
+				goto out;
+			}
+
+			memcpy(extent_metadata.iv_bytes, iv_data +
+				ECRYPTFS_MAX_IV_BYTES * extent_offset,
+				ECRYPTFS_MAX_IV_BYTES);
+			memcpy(extent_metadata.auth_tag_bytes, tag_data +
+				ECRYPTFS_GCM_TAG_SIZE * extent_offset,
+				ECRYPTFS_GCM_TAG_SIZE);
+
+			lower_offset = ecryptfs_lower_header_size(crypt_stat);
+			lower_offset += (meta_extent_num - 1) *
+				(metadata_per_extent + 1) *
+				crypt_stat->extent_size;
+
+			rc = ecryptfs_write_lower(ecryptfs_inode,
+					(void *) &extent_metadata,
+					lower_offset,
+					ECRYPTFS_GCM_TAG_SIZE);
+			if (rc < 0) {
+				printk(KERN_ERR "Error attempting to write lower"
+						"page; rc = [%d]\n", rc);
+				goto out;
+			}
+		}
 	} else {
 		lower_offset = lower_offset_for_page(crypt_stat, page);
 		enc_extent_virt = kmap(enc_extent_page);
