@@ -641,22 +641,29 @@ int ecryptfs_decrypt_page(struct page *page)
 	unsigned long extent_offset;
 	loff_t lower_offset;
 	int rc = 0;
+	u8 cipher_mode_code;
 
 	ecryptfs_inode = page->mapping->host;
 	crypt_stat =
 		&(ecryptfs_inode_to_private(ecryptfs_inode)->crypt_stat);
 	BUG_ON(!(crypt_stat->flags & ECRYPTFS_ENCRYPTED));
 
-	lower_offset = lower_offset_for_page(crypt_stat, page);
-	page_virt = kmap(page);
-	rc = ecryptfs_read_lower(page_virt, lower_offset, PAGE_CACHE_SIZE,
-				 ecryptfs_inode);
-	kunmap(page);
-	if (rc < 0) {
-		ecryptfs_printk(KERN_ERR,
-			"Error attempting to read lower page; rc = [%d]\n",
-			rc);
-		goto out;
+	cipher_mode_code = ecryptfs_code_for_cipher_mode_string(
+		crypt_stat->cipher_mode);
+
+	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+	} else {
+		lower_offset = lower_offset_for_page(crypt_stat, page);
+		page_virt = kmap(page);
+		rc = ecryptfs_read_lower(page_virt, lower_offset, PAGE_CACHE_SIZE,
+					 ecryptfs_inode);
+		kunmap(page);
+		if (rc < 0) {
+			ecryptfs_printk(KERN_ERR,
+				"Error attempting to read lower page; rc = [%d]\n",
+				rc);
+			goto out;
+		}
 	}
 
 	for (extent_offset = 0;
