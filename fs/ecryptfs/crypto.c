@@ -370,7 +370,7 @@ static int crypt_scatterlist(struct ecryptfs_crypt_stat *crypt_stat,
 		ablk_req = ablkcipher_request_alloc((struct crypto_ablkcipher *)
 					crypt_stat->tfm, GFP_NOFS);
 	}
-	if (!aead_req || !ablk_req) {
+	if (!aead_req && !ablk_req) {
 		mutex_unlock(&crypt_stat->cs_tfm_mutex);
 		rc = -ENOMEM;
 		goto out;
