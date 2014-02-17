@@ -560,25 +560,54 @@ int ecryptfs_encrypt_page(struct page *page)
 {
 	struct inode *ecryptfs_inode;
 	struct ecryptfs_crypt_stat *crypt_stat;
+	struct ecryptfs_extent_metadata extent_metadata;
 	char *enc_extent_virt;
 	struct page *enc_extent_page = NULL;
 	loff_t extent_offset;
 	loff_t lower_offset;
 	int rc = 0;
+	int num_extents;
+	int meta_extent_num;
+	int metadata_per_extent;
 	u8 cipher_mode_code;
+	u8 *tag_data = NULL;
+	u8 *iv_data = NULL;
 
 	ecryptfs_inode = page->mapping->host;
 	crypt_stat =
 		&(ecryptfs_inode_to_private(ecryptfs_inode)->crypt_stat);
 	BUG_ON(!(crypt_stat->flags & ECRYPTFS_ENCRYPTED));
+	num_extents = PAGE_CACHE_SIZE / crypt_stat->extent_size;
 	cipher_mode_code = ecryptfs_code_for_cipher_mode_string(
 		crypt_stat->cipher_mode);
+	metadata_per_extent = crypt_stat->extent_size / sizeof(extent_metadata);
+
 	enc_extent_page = alloc_page(GFP_USER);
 	if (!enc_extent_page) {
 		rc = -ENOMEM;
 		ecryptfs_printk(KERN_ERR, "Error allocating memory for "
 				"encrypted extent\n");
 		goto out;
+	}
+
+
+	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+		/* Make sure iv_data and tag_data are not the same pointer */
+		tag_data = kmalloc(num_extents * ECRYPTFS_GCM_TAG_SIZE, GFP_KERNEL);
+		if (!tag_data) {
+			rc = -ENOMEM;
+			ecryptfs_printk(KERN_ERR, "Error allocating memory for "
+					"auth_tag\n");
+			goto out;
+		}
+
+		iv_data = kmalloc(num_extents * ECRYPTFS_MAX_IV_BYTES, GFP_KERNEL);
+		if (!iv_data) {
+			rc = -ENOMEM;
+			ecryptfs_printk(KERN_ERR, "Error allocating memory for "
+					"iv_data\n");
+			goto out;
+		}	
 	}
 
 	for (extent_offset = 0;
@@ -614,6 +643,8 @@ out:
 	if (enc_extent_page) {
 		__free_page(enc_extent_page);
 	}
+	kfree(tag_data);
+	kfree(iv_data);
 	return rc;
 }
 
