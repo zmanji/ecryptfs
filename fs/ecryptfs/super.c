@@ -164,6 +164,9 @@ static int ecryptfs_show_options(struct seq_file *m, struct dentry *root)
 	seq_printf(m, ",ecryptfs_cipher=%s",
 		mount_crypt_stat->global_default_cipher_name);
 
+	seq_printf(m, ",ecryptfs_cipher_mode=%s",
+		mount_crypt_stat->global_default_cipher_mode_name);
+
 	if (mount_crypt_stat->global_default_cipher_key_size)
 		seq_printf(m, ",ecryptfs_key_bytes=%zd",
 			   mount_crypt_stat->global_default_cipher_key_size);
