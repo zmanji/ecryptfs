@@ -668,21 +668,46 @@ int ecryptfs_decrypt_page(struct page *page)
 {
 	struct inode *ecryptfs_inode;
 	struct ecryptfs_crypt_stat *crypt_stat;
+	struct ecryptfs_extent_metadata extent_metadata;
 	char *page_virt;
 	unsigned long extent_offset;
 	loff_t lower_offset;
 	int rc = 0;
+	int num_extents;
+	int data_extent_num;
+	int meta_extent_num;
+	int metadata_per_extent;
 	u8 cipher_mode_code;
+	u8 *tag_data = NULL;
+	u8 *iv_data = NULL;
 
 	ecryptfs_inode = page->mapping->host;
 	crypt_stat =
 		&(ecryptfs_inode_to_private(ecryptfs_inode)->crypt_stat);
 	BUG_ON(!(crypt_stat->flags & ECRYPTFS_ENCRYPTED));
 
+	num_extents = PAGE_CACHE_SIZE / crypt_stat->extent_size;
+	metadata_per_extent = crypt_stat->extent_size / sizeof(extent_metadata);
 	cipher_mode_code = ecryptfs_code_for_cipher_mode_string(
 		crypt_stat->cipher_mode);
 
 	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
+		/* Make sure iv_data and tag_data are not the same pointer */
+		tag_data = kmalloc(num_extents * ECRYPTFS_GCM_TAG_SIZE, GFP_KERNEL);
+		if (!tag_data) {
+			rc = -ENOMEM;
+			ecryptfs_printk(KERN_ERR, "Error allocating memory for "
+					"auth_tag\n");
+			goto out;
+		}
+
+		iv_data = kmalloc(num_extents * ECRYPTFS_MAX_IV_BYTES, GFP_KERNEL);
+		if (!iv_data) {
+			rc = -ENOMEM;
+			ecryptfs_printk(KERN_ERR, "Error allocating memory for "
+					"iv_data\n");
+			goto out;
+		}	
 	} else {
 		lower_offset = lower_offset_for_page(crypt_stat, page);
 		page_virt = kmap(page);
@@ -709,6 +734,8 @@ int ecryptfs_decrypt_page(struct page *page)
 		}
 	}
 out:
+	kfree(tag_data);
+	kfree(iv_data);
 	return rc;
 }
 
