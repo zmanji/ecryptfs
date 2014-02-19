@@ -524,6 +524,8 @@ static int crypt_extent_aead (struct ecryptfs_crypt_stat *crypt_stat,
 		memcpy(extent_iv, iv_data + offset, ECRYPTFS_MAX_IV_BYTES);
 		offset = ECRYPTFS_GCM_TAG_SIZE * extent_offset;
 		memcpy(tag_data_src, tag_data + offset, ECRYPTFS_GCM_TAG_SIZE);
+
+		printk(KERN_ERR "crypt_extent_aead: Decrypting with iv %04x and tag_data_src %04x\n", *extent_iv, *tag_data_src);
 	}
 
 	sg_init_table(&src_sg[0], 2);
@@ -554,6 +556,8 @@ static int crypt_extent_aead (struct ecryptfs_crypt_stat *crypt_stat,
 
 		offset = ECRYPTFS_MAX_IV_BYTES * extent_offset;
 		memcpy(iv_data + offset, extent_iv, ECRYPTFS_MAX_IV_BYTES);
+
+		printk(KERN_ERR "crypt_extent_aead: Encrypting with iv %x, tag_data %x", *extent_iv, *tag_data_dst);
 	}
 out:
 	return rc;
@@ -670,21 +674,15 @@ int ecryptfs_encrypt_page(struct page *page)
 
 	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
 		/* Make sure iv_data and tag_data are not the same pointer */
-		tag_data = kmalloc(num_extents * ECRYPTFS_GCM_TAG_SIZE, GFP_KERNEL);
+		tag_data = kmalloc(num_extents *
+			ECRYPTFS_GCM_TAG_SIZE + ECRYPTFS_MAX_IV_BYTES, GFP_KERNEL);
 		if (!tag_data) {
 			rc = -ENOMEM;
 			ecryptfs_printk(KERN_ERR, "Error allocating memory for "
 					"auth_tag\n");
 			goto out;
 		}
-
-		iv_data = kmalloc(num_extents * ECRYPTFS_MAX_IV_BYTES, GFP_KERNEL);
-		if (!iv_data) {
-			rc = -ENOMEM;
-			ecryptfs_printk(KERN_ERR, "Error allocating memory for "
-					"iv_data\n");
-			goto out;
-		}	
+		iv_data = tag_data + (num_extents * ECRYPTFS_GCM_TAG_SIZE);
 	}
 
 	for (extent_offset = 0;
@@ -744,9 +742,14 @@ int ecryptfs_encrypt_page(struct page *page)
 				ECRYPTFS_GCM_TAG_SIZE);
 
 			lower_offset = ecryptfs_lower_header_size(crypt_stat);
+
 			lower_offset += (meta_extent_num - 1) *
 				(metadata_per_extent + 1) *
 				crypt_stat->extent_size;
+
+			printk(KERN_ERR "encrypt_page: Lower offset = %p\n", lower_offset);
+			printk(KERN_ERR "encrypt_page: &iv = %p, &tag_data = %p\n", iv_data, tag_data);
+			printk(KERN_ERR "encrypt_page: iv = %04x, tag_data = %04x\n", *iv_data, *tag_data);
 
 			rc = ecryptfs_write_lower(ecryptfs_inode,
 					(void *) &extent_metadata,
@@ -884,6 +887,7 @@ int ecryptfs_decrypt_page(struct page *page)
 					lower_offset,
 					sizeof(extent_metadata), ecryptfs_inode);
 
+			printk(KERN_ERR "decrypt_page: Lower offset = %p\n", lower_offset);
 			memcpy(tag_data + ECRYPTFS_GCM_TAG_SIZE * extent_offset,
 				&(extent_metadata.auth_tag_bytes),
 				ECRYPTFS_GCM_TAG_SIZE);
@@ -891,6 +895,9 @@ int ecryptfs_decrypt_page(struct page *page)
 			memcpy(iv_data + ECRYPTFS_MAX_IV_BYTES * extent_offset,
 				&(extent_metadata.iv_bytes),
 				ECRYPTFS_MAX_IV_BYTES);
+
+			printk(KERN_ERR "encrypt_page: &iv = %p, &tag_data = %p\n", extent_metadata.iv_bytes, extent_metadata.auth_tag_bytes);
+			printk(KERN_ERR "decrypt_page: iv = %04x, tag_data = %04x\n", *(extent_metadata.iv_bytes), *(extent_metadata.auth_tag_bytes));
 
 			if (rc < 0) {
 				printk(KERN_ERR "Error attempting to read lower"
