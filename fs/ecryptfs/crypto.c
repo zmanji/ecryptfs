@@ -434,7 +434,7 @@ out:
 
 
 /**
- * crypt_scatterlist
+ * crypt_scatterlist_ablk
  * @crypt_stat: Pointer to the crypt_stat struct to initialize.
  * @dst_sg: Destination of the data after performing the crypto operation
  * @src_sg: Data to be encrypted or decrypted
@@ -444,17 +444,14 @@ out:
  *
  * Returns the number of bytes encrypted or decrypted; negative value on error
  */
-static int crypt_scatterlist(struct ecryptfs_crypt_stat *crypt_stat,
+static int crypt_scatterlist_ablk(struct ecryptfs_crypt_stat *crypt_stat,
 			     struct scatterlist *dst_sg,
 			     struct scatterlist *src_sg, int size,
 			     unsigned char *iv, int op)
 {
 	struct ablkcipher_request *ablk_req = NULL;
-	struct aead_request *aead_req = NULL;
 	struct extent_crypt_result ecr;
 	int rc = 0;
-	int cipher_mode_code = ecryptfs_code_for_cipher_mode_string(
-		crypt_stat->cipher_mode);
 
 	BUG_ON(!crypt_stat || !crypt_stat->tfm
 	       || !(crypt_stat->flags & ECRYPTFS_STRUCT_INITIALIZED));
@@ -468,47 +465,26 @@ static int crypt_scatterlist(struct ecryptfs_crypt_stat *crypt_stat,
 	init_completion(&ecr.completion);
 
 	mutex_lock(&crypt_stat->cs_tfm_mutex);
-	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
-		aead_req = aead_request_alloc((struct crypto_aead *)
-						crypt_stat->tfm,
-						GFP_NOFS);
-	} else {
-		ablk_req = ablkcipher_request_alloc((struct crypto_ablkcipher *)
+	ablk_req = ablkcipher_request_alloc((struct crypto_ablkcipher *)
 					crypt_stat->tfm, GFP_NOFS);
-	}
-	if (!aead_req && !ablk_req) {
+	if (!ablk_req) {
 		mutex_unlock(&crypt_stat->cs_tfm_mutex);
 		rc = -ENOMEM;
 		goto out;
 	}
 
-	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
-		aead_request_set_callback(aead_req,
-			CRYPTO_TFM_REQ_MAY_BACKLOG | CRYPTO_TFM_REQ_MAY_SLEEP,
-			extent_crypt_complete, &ecr);
-	} else {
-		ablkcipher_request_set_callback(ablk_req,
-			CRYPTO_TFM_REQ_MAY_BACKLOG | CRYPTO_TFM_REQ_MAY_SLEEP,
-			extent_crypt_complete, &ecr);
-	}
+	ablkcipher_request_set_callback(ablk_req,
+		CRYPTO_TFM_REQ_MAY_BACKLOG | CRYPTO_TFM_REQ_MAY_SLEEP,
+		extent_crypt_complete, &ecr);
 
 	/* Consider doing this once, when the file is opened */
 	if (!(crypt_stat->flags & ECRYPTFS_KEY_SET)) {
 
-		if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
-			rc = crypto_aead_setkey(
-					(struct crypto_aead *)
-					crypt_stat->tfm,
-					crypt_stat->key,
-					crypt_stat->key_size);
-
-		} else {
-			rc = crypto_ablkcipher_setkey(
-					(struct crypto_ablkcipher *)
-					crypt_stat->tfm,
-					crypt_stat->key,
-					crypt_stat->key_size);
-		}
+		rc = crypto_ablkcipher_setkey(
+				(struct crypto_ablkcipher *)
+				crypt_stat->tfm,
+				crypt_stat->key,
+				crypt_stat->key_size);
 		if (rc) {
 			ecryptfs_printk(KERN_ERR,
 					"Error setting key; rc = [%d]\n",
@@ -518,59 +494,27 @@ static int crypt_scatterlist(struct ecryptfs_crypt_stat *crypt_stat,
 			goto out;
 		}
 		crypt_stat->flags |= ECRYPTFS_KEY_SET;
-
-		if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
-			rc = crypto_aead_setauthsize(
-				(struct crypto_aead *) crypt_stat->tfm,
-				ECRYPTFS_GCM_TAG_SIZE);
-			if (rc) {
-				ecryptfs_printk(KERN_ERR,
-					"Error setting auth size; rc = [%d]\n",
-					rc);
-				mutex_unlock(&crypt_stat->cs_tfm_mutex);
-				rc = -EINVAL;
-				goto out;
-			}
-		}
 	}
 	mutex_unlock(&crypt_stat->cs_tfm_mutex);
 
-	if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM) {
-		u8 assoc_buf[ECRYPTFS_GCM_TAG_SIZE] = {0};
-		struct scatterlist assoc_sg;
-		sg_init_one(&assoc_sg, &assoc_buf[0], ARRAY_SIZE(assoc_buf));
-		if (op == DECRYPT)
-			size += ECRYPTFS_GCM_TAG_SIZE;
-		aead_request_set_crypt(aead_req, src_sg, dst_sg, size, iv);
-		aead_request_set_assoc(aead_req, &assoc_sg,
-			ARRAY_SIZE(assoc_buf));
-	} else
-		ablkcipher_request_set_crypt(ablk_req, src_sg,
-					     dst_sg, size, iv);
+	ablkcipher_request_set_crypt(ablk_req, src_sg,
+				     dst_sg, size, iv);
 
-	if (op == ENCRYPT && cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM)
-		rc = crypto_aead_encrypt(aead_req);
-	else if (op == ENCRYPT)
+	if (op == ENCRYPT)
 		rc = crypto_ablkcipher_encrypt(ablk_req);
-	else if (op == DECRYPT && cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM)
-		rc = crypto_aead_decrypt(aead_req);
 	else
 		rc = crypto_ablkcipher_decrypt(ablk_req);
 
 	if (rc == -EINPROGRESS || rc == -EBUSY) {
 		struct extent_crypt_result *ecr;
 
-		if (cipher_mode_code == ECRYPTFS_CIPHER_MODE_GCM)
-			ecr = aead_req->base.data;
-		else
-			ecr = ablk_req->base.data;
+		ecr = ablk_req->base.data;
 
 		wait_for_completion(&ecr->completion);
 		rc = ecr->rc;
 		reinit_completion(&ecr->completion);
 	}
 out:
-	aead_request_free(aead_req);
 	ablkcipher_request_free(ablk_req);
 	return rc;
 }
@@ -717,7 +661,7 @@ static int crypt_extent_ablk(struct ecryptfs_crypt_stat *crypt_stat,
 	sg_set_page(&dst_sg, dst_page, extent_size,
 		    extent_offset * extent_size);
 
-	rc = crypt_scatterlist(crypt_stat, &dst_sg, &src_sg, extent_size,
+	rc = crypt_scatterlist_ablk(crypt_stat, &dst_sg, &src_sg, extent_size,
 			       extent_iv, op);
 	if (rc < 0) {
 		printk(KERN_ERR "%s: Error attempting to crypt page with "
