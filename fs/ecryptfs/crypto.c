@@ -328,6 +328,114 @@ static void extent_crypt_complete(struct crypto_async_request *req, int rc)
 }
 
 /**
+ * crypt_scatterlist_aead
+ * @crypt_stat: Pointer to the crypt_stat struct to initialize.
+ * @dst_sg: Destination of the data after performing the crypto operation
+ * @src_sg: Data to be encrypted or decrypted
+ * @size: Length of data
+ * @iv: IV to use
+ * @op: ENCRYPT or DECRYPT to indicate the desired operation
+ *
+ * Returns the number of bytes encrypted or decrypted; negative value on error
+ */
+static int crypt_scatterlist_aead(struct ecryptfs_crypt_stat *crypt_stat,
+				  struct scatterlist *dst_sg,
+				  struct scatterlist *src_sg, int data_size,
+				  struct scatterlist *assoc_sg, int assoc_size,
+				  unsigned char *iv, int op)
+{
+	struct aead_request *aead_req = NULL;
+	struct extent_crypt_result ecr;
+	int rc = 0;
+	int cipher_mode_code = ecryptfs_code_for_cipher_mode_string(
+		crypt_stat->cipher_mode);
+
+	BUG_ON(!crypt_stat || !crypt_stat->tfm
+	       || !(crypt_stat->flags & ECRYPTFS_STRUCT_INITIALIZED));
+	if (unlikely(ecryptfs_verbosity > 0)) {
+		ecryptfs_printk(KERN_DEBUG, "Key size [%zd]; key:\n",
+				crypt_stat->key_size);
+		ecryptfs_dump_hex(crypt_stat->key,
+				  crypt_stat->key_size);
+	}
+
+	init_completion(&ecr.completion);
+
+	mutex_lock(&crypt_stat->cs_tfm_mutex);
+	aead_req = aead_request_alloc((struct crypto_aead *)
+					crypt_stat->tfm,
+					GFP_NOFS);
+	if (!aead_req && !ablk_req) {
+		mutex_unlock(&crypt_stat->cs_tfm_mutex);
+		rc = -ENOMEM;
+		goto out;
+	}
+
+	aead_request_set_callback(aead_req,
+		CRYPTO_TFM_REQ_MAY_BACKLOG | CRYPTO_TFM_REQ_MAY_SLEEP,
+		extent_crypt_complete, &ecr);
+
+	/* Consider doing this once, when the file is opened */
+	if (!(crypt_stat->flags & ECRYPTFS_KEY_SET)) {
+
+		rc = crypto_aead_setkey(
+				(struct crypto_aead *)
+				crypt_stat->tfm,
+				crypt_stat->key,
+				crypt_stat->key_size);
+
+		if (rc) {
+			ecryptfs_printk(KERN_ERR,
+					"Error setting key; rc = [%d]\n",
+					rc);
+			mutex_unlock(&crypt_stat->cs_tfm_mutex);
+			rc = -EINVAL;
+			goto out;
+		}
+		crypt_stat->flags |= ECRYPTFS_KEY_SET;
+
+		rc = crypto_aead_setauthsize(
+			(struct crypto_aead *) crypt_stat->tfm,
+			ECRYPTFS_GCM_TAG_SIZE);
+		if (rc) {
+			ecryptfs_printk(KERN_ERR,
+				"Error setting auth size; rc = [%d]\n",
+				rc);
+			mutex_unlock(&crypt_stat->cs_tfm_mutex);
+			rc = -EINVAL;
+			goto out;
+		}
+	}
+	mutex_unlock(&crypt_stat->cs_tfm_mutex);
+
+	if (op == DECRYPT)
+		data_size += ECRYPTFS_GCM_TAG_SIZE;
+
+	aead_request_set_crypt(aead_req, src_sg, dst_sg, data_size, iv);
+	aead_request_set_assoc(aead_req, assoc_sg,
+		assoc_size);
+
+	else if (op == ENCRYPT)
+		rc = crypto_aead_encrypt(aead_req);
+	else
+		rc = crypto_aead_decrypt(aead_req);
+
+	if (rc == -EINPROGRESS || rc == -EBUSY) {
+		struct extent_crypt_result *ecr;
+
+		ecr = aead_req->base.data;
+
+		wait_for_completion(&ecr->completion);
+		rc = ecr->rc;
+		reinit_completion(&ecr->completion);
+	}
+out:
+	aead_request_free(aead_req);
+	return rc;
+}
+
+
+/**
  * crypt_scatterlist
  * @crypt_stat: Pointer to the crypt_stat struct to initialize.
  * @dst_sg: Destination of the data after performing the crypto operation
@@ -503,16 +611,24 @@ static int crypt_extent_aead(struct ecryptfs_crypt_stat *crypt_stat,
 				unsigned long extent_offset, int op)
 {
 	pgoff_t page_index = op == ENCRYPT ? src_page->index : dst_page->index;
-	loff_t extent_base;
+	loff_t extent_num;
 	char extent_iv[ECRYPTFS_MAX_IV_BYTES];
 	struct scatterlist src_sg[2];
 	struct scatterlist dst_sg[2];
+	struct scatterlist assoc_sg;
 	size_t extent_size = crypt_stat->extent_size;
 	u8 tag_data_src[ECRYPTFS_GCM_TAG_SIZE] = {0};
 	u8 tag_data_dst[ECRYPTFS_GCM_TAG_SIZE] = {0};
 	int rc;
 
-	extent_base = (((loff_t)page_index) * (PAGE_CACHE_SIZE / extent_size));
+	extent_num = (((loff_t)page_index) * (PAGE_CACHE_SIZE / extent_size)) +
+		      extent_offset;
+
+
+
+	// data extent num is (extent_base + extent_offset)
+	// allocate a scatterlist to hold this value
+	// aead_request_set_assoc(req, scatterlist, scatterlist_len);
 
 	if (op == ENCRYPT) {
 		get_random_bytes(extent_iv, ECRYPTFS_MAX_IV_BYTES);
@@ -534,8 +650,11 @@ static int crypt_extent_aead(struct ecryptfs_crypt_stat *crypt_stat,
 		extent_offset * extent_size);
 	sg_set_buf(&dst_sg[1], tag_data_dst, ARRAY_SIZE(tag_data_dst));
 
-	rc = crypt_scatterlist(crypt_stat, &dst_sg[0], &src_sg[0], extent_size,
-				extent_iv, op);
+	sg_init_one(&assoc_sg, &extent_num, sizeof(extent_num));
+
+	rc = crypt_scatterlist_aead(crypt_stat, &dst_sg[0], &src_sg[0], 
+					extent_size, &assoc_sg, 
+					extent_iv, op);
 
 	if (rc < 0) {
 		printk(KERN_ERR "%s: Error attempting to crypt page with "
