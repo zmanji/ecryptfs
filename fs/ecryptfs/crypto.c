@@ -347,8 +347,6 @@ static int crypt_scatterlist_aead(struct ecryptfs_crypt_stat *crypt_stat,
 	struct aead_request *aead_req = NULL;
 	struct extent_crypt_result ecr;
 	int rc = 0;
-	int cipher_mode_code = ecryptfs_code_for_cipher_mode_string(
-		crypt_stat->cipher_mode);
 
 	BUG_ON(!crypt_stat || !crypt_stat->tfm
 	       || !(crypt_stat->flags & ECRYPTFS_STRUCT_INITIALIZED));
@@ -365,7 +363,7 @@ static int crypt_scatterlist_aead(struct ecryptfs_crypt_stat *crypt_stat,
 	aead_req = aead_request_alloc((struct crypto_aead *)
 					crypt_stat->tfm,
 					GFP_NOFS);
-	if (!aead_req && !ablk_req) {
+	if (!aead_req) {
 		mutex_unlock(&crypt_stat->cs_tfm_mutex);
 		rc = -ENOMEM;
 		goto out;
@@ -415,7 +413,7 @@ static int crypt_scatterlist_aead(struct ecryptfs_crypt_stat *crypt_stat,
 	aead_request_set_assoc(aead_req, assoc_sg,
 		assoc_size);
 
-	else if (op == ENCRYPT)
+	if (op == ENCRYPT)
 		rc = crypto_aead_encrypt(aead_req);
 	else
 		rc = crypto_aead_decrypt(aead_req);
@@ -653,8 +651,8 @@ static int crypt_extent_aead(struct ecryptfs_crypt_stat *crypt_stat,
 	sg_init_one(&assoc_sg, &extent_num, sizeof(extent_num));
 
 	rc = crypt_scatterlist_aead(crypt_stat, &dst_sg[0], &src_sg[0], 
-					extent_size, &assoc_sg, 
-					extent_iv, op);
+					extent_size, &assoc_sg,
+					sizeof(extent_num), extent_iv, op);
 
 	if (rc < 0) {
 		printk(KERN_ERR "%s: Error attempting to crypt page with "
