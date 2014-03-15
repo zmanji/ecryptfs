@@ -332,7 +332,9 @@ static void extent_crypt_complete(struct crypto_async_request *req, int rc)
  * @crypt_stat: Pointer to the crypt_stat struct to initialize.
  * @dst_sg: Destination of the data after performing the crypto operation
  * @src_sg: Data to be encrypted or decrypted
- * @size: Length of data
+ * @data_size: Length of data
+ * @assoc_sg: scatterlist to include as associated data
+ * @assoc_size: size of associated data
  * @iv: IV to use
  * @op: ENCRYPT or DECRYPT to indicate the desired operation
  *
